@@ -5,23 +5,50 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"sync"
 	"time"
 
+	"connectrpc.com/connect"
+	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/bernardoforcillo/privatelayer/internal/db"
 	meshv1 "github.com/bernardoforcillo/privatelayer/internal/gen/mesh/v1"
+	"github.com/bernardoforcillo/privatelayer/internal/gen/mesh/v1/meshv1connect"
+)
+
+var (
+	nodesActive = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "privatelayer_nodes_active",
+		Help: "Online nodes per org",
+	}, []string{"org_id"})
+
+	registrationsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "privatelayer_registrations_total",
+		Help: "Total node registrations",
+	}, []string{"org_id"})
+
+	heartbeatsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "privatelayer_heartbeats_total",
+		Help: "Total heartbeats",
+	}, []string{"org_id"})
+
+	peerStreamsActive = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "privatelayer_peer_streams_active",
+		Help: "Active peer streams",
+	})
 )
 
 type PeerInfo struct {
-	ID            string
-	PublicKey     string
-	Endpoint      string
-	AllowedIPs    []string
-	LastSeen      time.Time
-	Online        bool
-	Authenticated bool
-	AuthMethod    string
+	ID         string
+	OrgID      uuid.UUID
+	PublicKey  string
+	Endpoint   string
+	AllowedIPs []string
+	LastSeen   time.Time
+	Online     bool
 }
 
 type ServerConfig struct {
@@ -29,207 +56,172 @@ type ServerConfig struct {
 	CIDR             string
 	Network          *net.IPNet
 	HeartbeatTimeout time.Duration
-	RequireAuth      bool
 }
 
 type Server struct {
-	meshv1.UnimplementedMeshServiceServer
+	meshv1connect.UnimplementedMeshServiceHandler
 	config           *ServerConfig
-	db               interface{}
+	database         *db.Database
 	peers            map[string]*PeerInfo
 	mu               sync.RWMutex
 	heartbeatTimeout time.Duration
-	peerStreams      map[string]meshv1.MeshService_StreamPeersServer
+	peerStreams       map[string]*connect.ServerStream[meshv1.PeerList]
 	streamMu         sync.RWMutex
-	mapStreams       map[string]meshv1.MeshService_StreamMapServer
+	mapStreams        map[string]*connect.ServerStream[meshv1.NetworkMap]
 	mapStreamMu      sync.RWMutex
-	peerIndex        int
-	peerIndexMu      sync.Mutex
-	authKeys         map[string]*PreAuthKey
-	authMu           sync.RWMutex
 }
 
-type PreAuthKey struct {
-	ID        string
-	Key       string
-	Reusable  bool
-	Ephemeral bool
-	Used      bool
-	UsedBy    string
-	ExpiresAt *time.Time
-	CreatedAt time.Time
-}
-
-func NewServer(config *ServerConfig) *Server {
+func NewServer(config *ServerConfig, database *db.Database) *Server {
 	if config.HeartbeatTimeout == 0 {
 		config.HeartbeatTimeout = 60 * time.Second
 	}
-	return &Server{
+	s := &Server{
 		config:           config,
+		database:         database,
 		peers:            make(map[string]*PeerInfo),
 		heartbeatTimeout: config.HeartbeatTimeout,
-		peerStreams:      make(map[string]meshv1.MeshService_StreamPeersServer),
-		mapStreams:       make(map[string]meshv1.MeshService_StreamMapServer),
-		authKeys:         make(map[string]*PreAuthKey),
+		peerStreams:       make(map[string]*connect.ServerStream[meshv1.PeerList]),
+		mapStreams:        make(map[string]*connect.ServerStream[meshv1.NetworkMap]),
 	}
+	s.loadStateFromDB()
+	return s
 }
 
-func (s *Server) AddPreAuthKey(key *PreAuthKey) {
-	s.authMu.Lock()
-	s.authKeys[key.Key] = key
-	s.authMu.Unlock()
-	log.Printf("Created pre-auth key: %s (reusable=%v, ephemeral=%v)\n", key.Key[:16], key.Reusable, key.Ephemeral)
-}
-
-func (s *Server) CreatePreAuthKey(reusable, ephemeral bool, expiresIn time.Duration) *PreAuthKey {
-	bytes := make([]byte, 32)
-	rand.Read(bytes)
-	keyStr := base64.URLEncoding.EncodeToString(bytes)
-
-	key := &PreAuthKey{
-		ID:        fmt.Sprintf("pak_%d", time.Now().UnixNano()),
-		Key:       keyStr,
-		Reusable:  reusable,
-		Ephemeral: ephemeral,
-		Used:      false,
-		CreatedAt: time.Now(),
+func (s *Server) loadStateFromDB() {
+	nodes, err := s.database.GetAllNodes()
+	if err != nil {
+		slog.Error("failed to load nodes from DB", "err", err)
+		return
 	}
-
-	if expiresIn > 0 {
-		t := time.Now().Add(expiresIn)
-		key.ExpiresAt = &t
-	}
-
-	s.AddPreAuthKey(key)
-	return key
-}
-
-func (s *Server) ValidatePreAuthKey(keyStr string) error {
-	s.authMu.RLock()
-	key, exists := s.authKeys[keyStr]
-	s.authMu.RUnlock()
-
-	if !exists {
-		return fmt.Errorf("invalid pre-auth key")
-	}
-
-	if key.Used && !key.Reusable {
-		return fmt.Errorf("pre-auth key already used")
-	}
-
-	if key.ExpiresAt != nil && time.Now().After(*key.ExpiresAt) {
-		return fmt.Errorf("pre-auth key expired")
-	}
-
-	if !key.Reusable {
-		s.authMu.Lock()
-		key.Used = true
-		s.authMu.Unlock()
-	}
-
-	return nil
-}
-
-func (s *Server) ListPreAuthKeys() []*PreAuthKey {
-	s.authMu.RLock()
-	defer s.authMu.RUnlock()
-
-	keys := make([]*PreAuthKey, 0, len(s.authKeys))
-	for _, k := range s.authKeys {
-		keys = append(keys, k)
-	}
-	return keys
-}
-
-func (s *Server) DeletePreAuthKey(keyStr string) error {
-	s.authMu.Lock()
-	defer s.authMu.Unlock()
-
-	if _, exists := s.authKeys[keyStr]; !exists {
-		return fmt.Errorf("pre-auth key not found")
-	}
-
-	delete(s.authKeys, keyStr)
-	log.Printf("Deleted pre-auth key")
-	return nil
-}
-
-func (s *Server) Register(ctx context.Context, req *meshv1.RegisterRequest) (*meshv1.RegisterResponse, error) {
-	// Validate pre-auth key if required
-	authMethod := "none"
-	if s.config.RequireAuth || req.GetAuthKey() != "" {
-		if err := s.ValidatePreAuthKey(req.GetAuthKey()); err != nil {
-			return nil, fmt.Errorf("authentication failed: %w", err)
+	for _, n := range nodes {
+		s.peers[n.MachineKey] = &PeerInfo{
+			ID:         n.MachineKey,
+			OrgID:      n.OrgID,
+			PublicKey:  n.PublicKey,
+			AllowedIPs: []string(n.IPAddresses),
+			LastSeen:   n.LastSeen,
+			Online:     n.Online,
 		}
-		authMethod = "preauthkey"
+	}
+	slog.Info("loaded nodes from DB", "count", len(nodes))
+}
+
+func (s *Server) Register(ctx context.Context, req *connect.Request[meshv1.RegisterRequest]) (*connect.Response[meshv1.RegisterResponse], error) {
+	authKey := req.Msg.GetAuthKey()
+	if authKey == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("auth_key required"))
 	}
 
-	s.peerIndexMu.Lock()
-	peerIP := s.nextIP()
-	s.peerIndexMu.Unlock()
+	pak, err := s.database.GetPreAuthKey(authKey)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("invalid auth key"))
+	}
+	if pak.Used && !pak.Reusable {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("auth key already used"))
+	}
+	if pak.ExpiresAt != nil && time.Now().After(*pak.ExpiresAt) {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("auth key expired"))
+	}
+
+	org, err := s.database.GetOrgByID(pak.OrgID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("org not found"))
+	}
+
+	peerIP, err := s.database.AllocateIP(org.ID, org.CIDR)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("IP allocation failed: %w", err))
+	}
+
+	nodeID := req.Msg.Id
+	if nodeID == "" {
+		nodeID = uuid.New().String()
+	}
+
+	dbNode := &db.Node{
+		MachineKey:  nodeID,
+		OrgID:       org.ID,
+		PublicKey:   req.Msg.PublicKey,
+		IPAddresses: db.StringJSON{peerIP + "/32"},
+		Hostname:    nodeID,
+		Online:      true,
+		LastSeen:    time.Now(),
+	}
+	if err := s.database.CreateNode(dbNode); err != nil {
+		dbNode2, _ := s.database.GetNodeByMachineKey(nodeID)
+		if dbNode2 != nil {
+			dbNode2.Online = true
+			dbNode2.LastSeen = time.Now()
+			_ = s.database.UpdateNode(dbNode2)
+		}
+	}
+
+	if !pak.Reusable {
+		_ = s.database.UsePreAuthKey(authKey, nodeID)
+	}
 
 	peerInfo := &PeerInfo{
-		ID:            req.Id,
-		PublicKey:     req.PublicKey,
-		Endpoint:      req.Endpoint,
-		AllowedIPs:    []string{peerIP + "/32"},
-		LastSeen:      time.Now(),
-		Online:        true,
-		Authenticated: authMethod != "none",
-		AuthMethod:    authMethod,
+		ID:         nodeID,
+		OrgID:      org.ID,
+		PublicKey:  req.Msg.PublicKey,
+		Endpoint:   req.Msg.Endpoint,
+		AllowedIPs: []string{peerIP + "/32"},
+		LastSeen:   time.Now(),
+		Online:     true,
 	}
 
 	s.mu.Lock()
-	s.peers[req.Id] = peerInfo
+	s.peers[nodeID] = peerInfo
 	s.mu.Unlock()
 
-	log.Printf("Peer registered: %s -> %s (%s) [auth=%s]\n", req.Id, peerIP, req.Endpoint, authMethod)
+	registrationsTotal.WithLabelValues(org.ID.String()).Inc()
+	nodesActive.WithLabelValues(org.ID.String()).Inc()
 
-	s.broadcastPeerUpdate(req.Id)
-	s.broadcastMapUpdate(req.Id)
+	slog.Info("peer registered", "node_id", nodeID, "ip", peerIP, "org", org.Slug)
 
-	return &meshv1.RegisterResponse{
-		Peers: s.getPeersList(),
-	}, nil
+	s.broadcastPeerUpdate(nodeID, org.ID)
+	s.broadcastMapUpdate(nodeID, org.ID)
+
+	return connect.NewResponse(&meshv1.RegisterResponse{
+		Peers: s.getPeersList(org.ID),
+	}), nil
 }
 
-func (s *Server) nextIP() string {
-	if s.config.Network == nil {
-		return fmt.Sprintf("10.0.%d.1", s.peerIndex%256)
-	}
-
-	ip := s.config.Network.IP.To4()
-	ip[2] = byte(s.peerIndex >> 8)
-	ip[3] = byte(s.peerIndex & 0xFF)
-	s.peerIndex++
-
-	return ip.String()
-}
-
-func (s *Server) Heartbeat(ctx context.Context, req *meshv1.HeartbeatRequest) (*meshv1.HeartbeatResponse, error) {
+func (s *Server) Heartbeat(ctx context.Context, req *connect.Request[meshv1.HeartbeatRequest]) (*connect.Response[meshv1.HeartbeatResponse], error) {
 	s.mu.Lock()
-	if peer, ok := s.peers[req.Id]; ok {
+	if peer, ok := s.peers[req.Msg.Id]; ok {
 		peer.LastSeen = time.Now()
 		peer.Online = true
+		heartbeatsTotal.WithLabelValues(peer.OrgID.String()).Inc()
 	}
 	s.mu.Unlock()
-
-	return &meshv1.HeartbeatResponse{Success: true}, nil
+	return connect.NewResponse(&meshv1.HeartbeatResponse{Success: true}), nil
 }
 
-func (s *Server) StreamPeers(req *meshv1.StreamPeersRequest, stream meshv1.MeshService_StreamPeersServer) error {
+func (s *Server) StreamPeers(ctx context.Context, req *connect.Request[meshv1.StreamPeersRequest], stream *connect.ServerStream[meshv1.PeerList]) error {
+	id := req.Msg.Id
+
+	s.mu.RLock()
+	peer, exists := s.peers[id]
+	s.mu.RUnlock()
+	if !exists {
+		return connect.NewError(connect.CodeNotFound, fmt.Errorf("node not registered"))
+	}
+	orgID := peer.OrgID
+
 	s.streamMu.Lock()
-	s.peerStreams[req.Id] = stream
+	s.peerStreams[id] = stream
 	s.streamMu.Unlock()
+	peerStreamsActive.Inc()
 
 	defer func() {
 		s.streamMu.Lock()
-		delete(s.peerStreams, req.Id)
+		delete(s.peerStreams, id)
 		s.streamMu.Unlock()
+		peerStreamsActive.Dec()
 	}()
 
-	peers := s.getPeersList()
-	if err := stream.Send(&meshv1.PeerList{Peers: peers}); err != nil {
+	if err := stream.Send(&meshv1.PeerList{Peers: s.getPeersList(orgID)}); err != nil {
 		return err
 	}
 
@@ -238,57 +230,67 @@ func (s *Server) StreamPeers(req *meshv1.StreamPeersRequest, stream meshv1.MeshS
 
 	for {
 		select {
-		case <-stream.Context().Done():
+		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			if err := stream.Send(&meshv1.PeerList{Peers: s.getPeersList()}); err != nil {
+			if err := stream.Send(&meshv1.PeerList{Peers: s.getPeersList(orgID)}); err != nil {
 				return err
 			}
 		}
 	}
 }
 
-func (s *Server) Disconnect(ctx context.Context, req *meshv1.DisconnectRequest) (*meshv1.DisconnectResponse, error) {
+func (s *Server) Disconnect(ctx context.Context, req *connect.Request[meshv1.DisconnectRequest]) (*connect.Response[meshv1.DisconnectResponse], error) {
 	s.mu.Lock()
-	if peer, ok := s.peers[req.Id]; ok {
+	if peer, ok := s.peers[req.Msg.Id]; ok {
 		peer.Online = false
+		nodesActive.WithLabelValues(peer.OrgID.String()).Dec()
+		orgID := peer.OrgID
+		s.mu.Unlock()
+		s.broadcastPeerUpdate(req.Msg.Id, orgID)
+		s.broadcastMapUpdate(req.Msg.Id, orgID)
+	} else {
+		s.mu.Unlock()
 	}
-	s.mu.Unlock()
-
-	log.Printf("Peer disconnected: %s\n", req.Id)
-
-	s.broadcastPeerUpdate(req.Id)
-	s.broadcastMapUpdate(req.Id)
-
-	return &meshv1.DisconnectResponse{Success: true}, nil
+	slog.Info("peer disconnected", "node_id", req.Msg.Id)
+	return connect.NewResponse(&meshv1.DisconnectResponse{Success: true}), nil
 }
 
-func (s *Server) UpdateStatus(ctx context.Context, req *meshv1.UpdateStatusRequest) (*meshv1.UpdateStatusResponse, error) {
+func (s *Server) UpdateStatus(ctx context.Context, req *connect.Request[meshv1.UpdateStatusRequest]) (*connect.Response[meshv1.UpdateStatusResponse], error) {
 	s.mu.Lock()
-	if peer, ok := s.peers[req.NodeId]; ok {
-		peer.Online = req.Online
+	if peer, ok := s.peers[req.Msg.NodeId]; ok {
+		peer.Online = req.Msg.Online
 		peer.LastSeen = time.Now()
 	}
 	s.mu.Unlock()
-
-	return &meshv1.UpdateStatusResponse{
+	return connect.NewResponse(&meshv1.UpdateStatusResponse{
 		Success:   true,
 		Timestamp: time.Now().UnixMilli(),
-	}, nil
+	}), nil
 }
 
-func (s *Server) StreamMap(req *meshv1.StreamMapRequest, stream meshv1.MeshService_StreamMapServer) error {
+func (s *Server) StreamMap(ctx context.Context, req *connect.Request[meshv1.StreamMapRequest], stream *connect.ServerStream[meshv1.NetworkMap]) error {
+	id := req.Msg.NodeId
+
+	s.mu.RLock()
+	peer, exists := s.peers[id]
+	s.mu.RUnlock()
+	if !exists {
+		return connect.NewError(connect.CodeNotFound, fmt.Errorf("node not registered"))
+	}
+	orgID := peer.OrgID
+
 	s.mapStreamMu.Lock()
-	s.mapStreams[req.NodeId] = stream
+	s.mapStreams[id] = stream
 	s.mapStreamMu.Unlock()
 
 	defer func() {
 		s.mapStreamMu.Lock()
-		delete(s.mapStreams, req.NodeId)
+		delete(s.mapStreams, id)
 		s.mapStreamMu.Unlock()
 	}()
 
-	if err := stream.Send(s.buildNetworkMap()); err != nil {
+	if err := stream.Send(s.buildNetworkMap(orgID)); err != nil {
 		return err
 	}
 
@@ -297,28 +299,54 @@ func (s *Server) StreamMap(req *meshv1.StreamMapRequest, stream meshv1.MeshServi
 
 	for {
 		select {
-		case <-stream.Context().Done():
+		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			if err := stream.Send(s.buildNetworkMap()); err != nil {
+			if err := stream.Send(s.buildNetworkMap(orgID)); err != nil {
 				return err
 			}
 		}
 	}
 }
 
-func (s *Server) GetNodes(ctx context.Context, req *meshv1.GetNodesRequest) (*meshv1.GetNodesResponse, error) {
-	return &meshv1.GetNodesResponse{
-		Nodes: s.getNodesList(req.OnlineOnly),
-	}, nil
-}
+func (s *Server) GetNodes(ctx context.Context, req *connect.Request[meshv1.GetNodesRequest]) (*connect.Response[meshv1.GetNodesResponse], error) {
+	orgID, ok := db.OrgIDFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("missing org context"))
+	}
 
-func (s *Server) getPeersList() []*meshv1.Peer {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	peers := make([]*meshv1.Peer, 0, len(s.peers))
+	nodes := make([]*meshv1.NodeInfo, 0)
 	for _, p := range s.peers {
+		if p.OrgID != orgID {
+			continue
+		}
+		if req.Msg.OnlineOnly && !p.Online {
+			continue
+		}
+		nodes = append(nodes, &meshv1.NodeInfo{
+			Id:          p.ID,
+			Hostname:    p.ID,
+			PublicKey:   p.PublicKey,
+			IpAddresses: p.AllowedIPs,
+			Online:      p.Online,
+			LastSeen:    p.LastSeen.UnixMilli(),
+		})
+	}
+	return connect.NewResponse(&meshv1.GetNodesResponse{Nodes: nodes}), nil
+}
+
+func (s *Server) getPeersList(orgID uuid.UUID) []*meshv1.Peer {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	peers := make([]*meshv1.Peer, 0)
+	for _, p := range s.peers {
+		if p.OrgID != orgID {
+			continue
+		}
 		peers = append(peers, &meshv1.Peer{
 			Id:         p.ID,
 			PublicKey:  p.PublicKey,
@@ -331,34 +359,13 @@ func (s *Server) getPeersList() []*meshv1.Peer {
 	return peers
 }
 
-func (s *Server) getNodesList(onlineOnly bool) []*meshv1.NodeInfo {
+func (s *Server) buildNetworkMap(orgID uuid.UUID) *meshv1.NetworkMap {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	nodes := make([]*meshv1.NodeInfo, 0, len(s.peers))
+	peers := make([]*meshv1.Peer, 0)
 	for _, p := range s.peers {
-		if onlineOnly && !p.Online {
-			continue
-		}
-		nodes = append(nodes, &meshv1.NodeInfo{
-			Id:          p.ID,
-			Hostname:    p.ID,
-			PublicKey:   p.PublicKey,
-			IpAddresses: p.AllowedIPs,
-			Online:      p.Online,
-			LastSeen:    p.LastSeen.UnixMilli(),
-		})
-	}
-	return nodes
-}
-
-func (s *Server) buildNetworkMap() *meshv1.NetworkMap {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	peers := make([]*meshv1.Peer, 0, len(s.peers))
-	for _, p := range s.peers {
-		if !p.Online {
+		if p.OrgID != orgID || !p.Online {
 			continue
 		}
 		peers = append(peers, &meshv1.Peer{
@@ -370,7 +377,6 @@ func (s *Server) buildNetworkMap() *meshv1.NetworkMap {
 			LastSeen:   p.LastSeen.UnixMilli(),
 		})
 	}
-
 	return &meshv1.NetworkMap{
 		NodeId:    "controlplane",
 		Peers:     peers,
@@ -379,34 +385,42 @@ func (s *Server) buildNetworkMap() *meshv1.NetworkMap {
 	}
 }
 
-func (s *Server) broadcastPeerUpdate(excludeID string) {
-	peerList := &meshv1.PeerList{Peers: s.getPeersList()}
-
+func (s *Server) broadcastPeerUpdate(excludeID string, orgID uuid.UUID) {
+	peerList := &meshv1.PeerList{Peers: s.getPeersList(orgID)}
 	s.streamMu.RLock()
 	defer s.streamMu.RUnlock()
-
 	for id, stream := range s.peerStreams {
 		if id == excludeID {
 			continue
 		}
+		s.mu.RLock()
+		peer, ok := s.peers[id]
+		s.mu.RUnlock()
+		if !ok || peer.OrgID != orgID {
+			continue
+		}
 		if err := stream.Send(peerList); err != nil {
-			log.Printf("Failed to send peer update to %s: %v\n", id, err)
+			slog.Warn("failed to send peer update", "node_id", id, "err", err)
 		}
 	}
 }
 
-func (s *Server) broadcastMapUpdate(excludeID string) {
-	networkMap := s.buildNetworkMap()
-
+func (s *Server) broadcastMapUpdate(excludeID string, orgID uuid.UUID) {
+	networkMap := s.buildNetworkMap(orgID)
 	s.mapStreamMu.RLock()
 	defer s.mapStreamMu.RUnlock()
-
 	for id, stream := range s.mapStreams {
 		if id == excludeID {
 			continue
 		}
+		s.mu.RLock()
+		peer, ok := s.peers[id]
+		s.mu.RUnlock()
+		if !ok || peer.OrgID != orgID {
+			continue
+		}
 		if err := stream.Send(networkMap); err != nil {
-			log.Printf("Failed to send map update to %s: %v\n", id, err)
+			slog.Warn("failed to send map update", "node_id", id, "err", err)
 		}
 	}
 }
@@ -414,25 +428,27 @@ func (s *Server) broadcastMapUpdate(excludeID string) {
 func (s *Server) CleanupStalePeers() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-
 	for range ticker.C {
 		s.mu.Lock()
 		for id, peer := range s.peers {
-			if time.Since(peer.LastSeen) > s.heartbeatTimeout {
+			if time.Since(peer.LastSeen) > s.heartbeatTimeout && peer.Online {
 				peer.Online = false
-				log.Printf("Peer expired: %s\n", id)
-				s.broadcastPeerUpdate(id)
-				s.broadcastMapUpdate(id)
+				nodesActive.WithLabelValues(peer.OrgID.String()).Dec()
+				slog.Info("peer expired", "node_id", id)
+				orgID := peer.OrgID
+				s.mu.Unlock()
+				s.broadcastPeerUpdate(id, orgID)
+				s.broadcastMapUpdate(id, orgID)
+				s.mu.Lock()
 			}
 		}
 		s.mu.Unlock()
 	}
 }
 
-func (s *Server) GetPeers() []*meshv1.Peer {
-	return s.getPeersList()
-}
-
-func (s *Server) SetDatabase(db interface{}) {
-	s.db = db
+// generatePreAuthKey creates a random pre-auth key string (used internally).
+func generatePreAuthKey() string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	return base64.URLEncoding.EncodeToString(b)
 }
