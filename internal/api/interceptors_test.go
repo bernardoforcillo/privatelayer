@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -123,4 +124,33 @@ func TestAPIKeyInterceptor_InvalidOrgKey(t *testing.T) {
 	_, err := handler(context.Background(), req)
 	require.Error(t, err)
 	require.False(t, called)
+}
+
+func TestAPIKeyInterceptor_ExpiredOrgKey(t *testing.T) {
+	database := setupTestDB(t)
+
+	org := &db.Org{Name: "Test", Slug: "test", CIDR: "10.0.0.0/8"}
+	require.NoError(t, database.CreateOrg(org))
+
+	rawKey := "pl_expiredkey"
+	hash := hashAPIKey(rawKey)
+	expiredTime := time.Now().Add(-1 * time.Hour)
+	apiKey := &db.APIKey{
+		OrgID:       org.ID,
+		Key:         hash,
+		Prefix:      "pl_ex",
+		Description: "expired",
+		ExpiresAt:   &expiredTime,
+	}
+	require.NoError(t, database.CreateAPIKey(apiKey))
+
+	interceptor := NewAPIKeyInterceptor(database, "bootstrap-secret")
+	handler := interceptor.WrapUnary(func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+		return nil, nil
+	})
+
+	req := connect.NewRequest(&struct{}{})
+	req.Header().Set("X-API-Key", rawKey)
+	_, err := handler(context.Background(), req)
+	require.Error(t, err)
 }

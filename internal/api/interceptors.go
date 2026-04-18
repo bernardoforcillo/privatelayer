@@ -3,12 +3,14 @@ package api
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/bernardoforcillo/privatelayer/internal/db"
+	"gorm.io/gorm"
 )
 
 func hashAPIKey(raw string) string {
@@ -31,7 +33,7 @@ func NewAPIKeyInterceptor(database *db.Database, bootstrapKey string) connect.Un
 
 			// CreateOrg uses the bootstrap key
 			if strings.HasSuffix(procedure, "/CreateOrg") {
-				if apiKey != bootstrapKey {
+				if subtle.ConstantTimeCompare([]byte(apiKey), []byte(bootstrapKey)) == 0 {
 					return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("invalid bootstrap key"))
 				}
 				return next(ctx, req)
@@ -41,7 +43,10 @@ func NewAPIKeyInterceptor(database *db.Database, bootstrapKey string) connect.Un
 			hash := hashAPIKey(apiKey)
 			key, err := database.GetAPIKey(hash)
 			if err != nil {
-				return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("invalid API key"))
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("invalid API key"))
+				}
+				return nil, connect.NewError(connect.CodeInternal, errors.New("failed to validate API key"))
 			}
 
 			ctx = db.WithOrgIDCtx(ctx, key.OrgID)
