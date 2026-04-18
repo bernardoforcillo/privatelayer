@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -13,12 +15,12 @@ import (
 	"syscall"
 	"time"
 
+	"connectrpc.com/connect"
 	meshv1 "github.com/bernardoforcillo/privatelayer/internal/gen/mesh/v1"
+	meshv1connect "github.com/bernardoforcillo/privatelayer/internal/gen/mesh/v1/meshv1connect"
 	"github.com/bernardoforcillo/privatelayer/internal/wireguard"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 var (
@@ -37,8 +39,9 @@ type MeshClient struct {
 	publicKey  string
 	listenPort int
 	ifaceName  string
-	conn       *grpc.ClientConn
-	client     meshv1.MeshServiceClient
+	httpClient *http.Client
+	client     meshv1connect.MeshServiceClient
+	controlURL string
 	ctx        context.Context
 	tunnel     *wireguard.Tunnel
 	wgConfig   *wireguard.InterfaceConfig
@@ -110,7 +113,7 @@ func initConfig() {
 		viper.SetConfigName("client")
 		viper.SetConfigType("yaml")
 		if err := viper.ReadInConfig(); err == nil {
-			log.Printf("Loaded config from: %s\n", viper.ConfigFileUsed())
+			slog.Info("loaded config", "file", viper.ConfigFileUsed())
 			// Use config file values (higher precedence than defaults)
 			if c := viper.GetString("control"); c != "" {
 				controlAddr = c
@@ -152,15 +155,22 @@ func runClient(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load node ID: %w", err)
 	}
 
-	log.Printf("Starting PrivateLayer client: %s\n", nodeID)
+	slog.Info("starting PrivateLayer client", "nodeID", nodeID)
 
-	conn, err := grpc.Dial(controlAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return fmt.Errorf("failed to connect to control plane: %w", err)
+	tlsSkipVerify := viper.GetBool("tls_insecure_skip_verify")
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig:   &tls.Config{InsecureSkipVerify: tlsSkipVerify},
+			ForceAttemptHTTP2: true,
+		},
 	}
-	defer conn.Close()
 
-	client := meshv1.NewMeshServiceClient(conn)
+	controlURL := controlAddr
+	if !strings.HasPrefix(controlURL, "http") {
+		controlURL = "https://" + controlURL
+	}
+
+	client := meshv1connect.NewMeshServiceClient(httpClient, controlURL)
 	ctx := context.Background()
 
 	listenPort, err := wireguard.GetFreePort()
@@ -174,31 +184,33 @@ func runClient(cmd *cobra.Command, args []string) error {
 		publicKey:  keyPair.PublicKey,
 		listenPort: listenPort,
 		ifaceName:  interfaceName,
-		conn:       conn,
+		httpClient: httpClient,
 		client:     client,
+		controlURL: controlURL,
 		ctx:        ctx,
 		stopChan:   make(chan struct{}),
 	}
 
-	resp, err := client.Register(ctx, &meshv1.RegisterRequest{
-		Id:         nodeID,
-		PublicKey:  keyPair.PublicKey,
-		Endpoint:   fmt.Sprintf("0.0.0.0:%d", listenPort),
-		AllowedIps: nil,
-	})
+	resp, err := client.Register(ctx, connect.NewRequest(&meshv1.RegisterRequest{
+		Id:        nodeID,
+		PublicKey: keyPair.PublicKey,
+		Endpoint:  fmt.Sprintf("0.0.0.0:%d", listenPort),
+		AuthKey:   authKey,
+	}))
 	if err != nil {
 		return fmt.Errorf("failed to register: %w", err)
 	}
 
-	log.Printf("Authenticated: %s\n", nodeID)
+	slog.Info("authenticated", "nodeID", nodeID)
 
-	if len(resp.Peers) > 0 {
-		mc.localIP = resp.Peers[0].AllowedIps[0]
+	peers := resp.Msg.Peers
+	if len(peers) > 0 {
+		mc.localIP = peers[0].AllowedIps[0]
 	}
 
-	log.Printf("Assigned IP: %s\n", mc.localIP)
+	slog.Info("assigned IP", "ip", mc.localIP)
 
-	mc.updatePeerConfig(resp.Peers)
+	mc.updatePeerConfig(peers)
 	if err := mc.provisionWireGuard(userspace); err != nil {
 		return err
 	}
@@ -211,13 +223,13 @@ func runClient(cmd *cobra.Command, args []string) error {
 	go mc.startNetworkMapStream()
 	go mc.startReconnectLoop()
 
-	log.Printf("Client running (daemon=%v): %s\n", daemonMode, nodeID)
-	log.Printf("Node: %s, IP: %s, Interface: %s\n", nodeID, mc.localIP, interfaceName)
-	log.Printf("Public key: %s\n", keyPair.PublicKey)
+	slog.Info("client running", "daemon", daemonMode, "nodeID", nodeID)
+	slog.Info("node info", "nodeID", nodeID, "ip", mc.localIP, "interface", interfaceName)
+	slog.Info("public key", "key", keyPair.PublicKey)
 
 	if daemonMode {
 		writePidFile(configDir)
-		log.Println("Daemon started successfully")
+		slog.Info("daemon started successfully")
 	}
 
 	sigChan := make(chan os.Signal, 1)
@@ -228,11 +240,11 @@ func runClient(cmd *cobra.Command, args []string) error {
 
 	<-sigChan
 
-	log.Println("Shutting down...")
+	slog.Info("shutting down...")
 	mc.running = false
 	close(mc.stopChan)
 
-	client.Disconnect(ctx, &meshv1.DisconnectRequest{Id: nodeID})
+	mc.client.Disconnect(ctx, connect.NewRequest(&meshv1.DisconnectRequest{Id: nodeID}))
 	mc.cleanup()
 
 	removePidFile(configDir)
@@ -268,9 +280,9 @@ func (mc *MeshClient) provisionWireGuard(userspace bool) error {
 	if userspace {
 		mc.tunnel, err = wireguard.CreateTunnel(mc.ifaceName)
 		if err != nil {
-			log.Printf("Userspace tunnel failed: %v, falling back to config file\n", err)
+			slog.Warn("userspace tunnel failed, falling back to config file", "err", err)
 		} else {
-			log.Printf("Userspace tunnel %s created\n", mc.ifaceName)
+			slog.Info("userspace tunnel created", "interface", mc.ifaceName)
 			return nil
 		}
 	}
@@ -279,15 +291,15 @@ func (mc *MeshClient) provisionWireGuard(userspace bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to save WireGuard config: %w", err)
 	}
-	log.Printf("WireGuard config saved to: %s\n", configFile)
+	slog.Info("WireGuard config saved", "path", configFile)
 	return nil
 }
 
 func (mc *MeshClient) startPeerStream() {
 	for mc.running {
-		stream, err := mc.client.StreamPeers(mc.ctx, &meshv1.StreamPeersRequest{Id: mc.nodeID})
+		stream, err := mc.client.StreamPeers(mc.ctx, connect.NewRequest(&meshv1.StreamPeersRequest{Id: mc.nodeID}))
 		if err != nil {
-			log.Printf("Peer stream error: %v\n", err)
+			slog.Warn("peer stream error", "err", err)
 			select {
 			case <-mc.stopChan:
 				return
@@ -296,21 +308,18 @@ func (mc *MeshClient) startPeerStream() {
 			continue
 		}
 
-		for {
+		for stream.Receive() {
 			select {
 			case <-mc.stopChan:
 				return
 			default:
-				update, err := stream.Recv()
-				if err != nil {
-					log.Printf("Peer stream disconnected: %v\n", err)
-					goto reconnect
-				}
-				log.Printf("Peer update: %d peers\n", len(update.Peers))
-				mc.updatePeerConfig(update.Peers)
+				mc.updatePeerConfig(stream.Msg().Peers)
 			}
 		}
-	reconnect:
+		if err := stream.Err(); err != nil {
+			slog.Warn("peer stream disconnected", "err", err)
+		}
+
 		select {
 		case <-mc.stopChan:
 			return
@@ -329,16 +338,16 @@ func (mc *MeshClient) startStatusUpdates() {
 			if !mc.running {
 				return
 			}
-			if _, err := mc.client.Heartbeat(mc.ctx, &meshv1.HeartbeatRequest{Id: mc.nodeID}); err != nil {
-				log.Printf("Heartbeat failed: %v\n", err)
+			if _, err := mc.client.Heartbeat(mc.ctx, connect.NewRequest(&meshv1.HeartbeatRequest{Id: mc.nodeID})); err != nil {
+				slog.Warn("heartbeat failed", "err", err)
 			}
 
-			mc.client.UpdateStatus(mc.ctx, &meshv1.UpdateStatusRequest{
+			mc.client.UpdateStatus(mc.ctx, connect.NewRequest(&meshv1.UpdateStatusRequest{
 				NodeId:  mc.nodeID,
 				Online:  true,
 				Version: "1.0.0",
 				State:   collectState(),
-			})
+			}))
 		case <-mc.stopChan:
 			return
 		}
@@ -347,9 +356,9 @@ func (mc *MeshClient) startStatusUpdates() {
 
 func (mc *MeshClient) startNetworkMapStream() {
 	for mc.running {
-		stream, err := mc.client.StreamMap(mc.ctx, &meshv1.StreamMapRequest{NodeId: mc.nodeID})
+		stream, err := mc.client.StreamMap(mc.ctx, connect.NewRequest(&meshv1.StreamMapRequest{NodeId: mc.nodeID}))
 		if err != nil {
-			log.Printf("Network map stream error: %v\n", err)
+			slog.Warn("network map stream error", "err", err)
 			select {
 			case <-mc.stopChan:
 				return
@@ -358,21 +367,20 @@ func (mc *MeshClient) startNetworkMapStream() {
 			continue
 		}
 
-		for {
+		for stream.Receive() {
 			select {
 			case <-mc.stopChan:
 				return
 			default:
-				update, err := stream.Recv()
-				if err != nil {
-					log.Printf("Network map stream disconnected: %v\n", err)
-					goto reconnectNM
-				}
-				log.Printf("Network map: version=%d, peers=%d\n", update.Version, len(update.Peers))
-				mc.updatePeerConfig(update.Peers)
+				msg := stream.Msg()
+				slog.Info("network map update", "version", msg.Version, "peers", len(msg.Peers))
+				mc.updatePeerConfig(msg.Peers)
 			}
 		}
-	reconnectNM:
+		if err := stream.Err(); err != nil {
+			slog.Warn("network map stream disconnected", "err", err)
+		}
+
 		select {
 		case <-mc.stopChan:
 			return
@@ -391,10 +399,7 @@ func (mc *MeshClient) startReconnectLoop() {
 			if !mc.running {
 				return
 			}
-			if mc.conn == nil {
-				log.Println("Connection lost, reconnecting...")
-				mc.reconnect()
-			}
+			mc.reconnect()
 		case <-mc.stopChan:
 			return
 		}
@@ -402,20 +407,8 @@ func (mc *MeshClient) startReconnectLoop() {
 }
 
 func (mc *MeshClient) reconnect() {
-	for i := 0; i < 5; i++ {
-		conn, err := grpc.Dial(controlAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		if err != nil {
-			log.Printf("Reconnect attempt %d failed: %v\n", i+1, err)
-			time.Sleep(time.Duration(i+1) * time.Second)
-			continue
-		}
-
-		mc.conn = conn
-		mc.client = meshv1.NewMeshServiceClient(conn)
-		log.Println("Reconnected to control plane")
-		return
-	}
-	log.Println("Failed to reconnect after 5 attempts")
+	mc.client = meshv1connect.NewMeshServiceClient(mc.httpClient, mc.controlURL)
+	slog.Info("reconnected to control plane")
 }
 
 func (mc *MeshClient) cleanup() {
@@ -453,7 +446,7 @@ func loadOrGenerateKeyPair(configDir string) (*wireguard.KeyPair, error) {
 
 	data, _ = json.Marshal(kp)
 	os.WriteFile(keyFile, data, 0600)
-	log.Printf("Generated new key pair\n")
+	slog.Info("generated new key pair")
 
 	return kp, nil
 }
@@ -471,7 +464,7 @@ func loadOrGenerateNodeID(configDir string) (string, error) {
 
 	id := fmt.Sprintf("node-%d", time.Now().UnixNano())
 	os.WriteFile(idFile, []byte(id), 0600)
-	log.Printf("Generated new node ID: %s\n", id)
+	slog.Info("generated new node ID", "nodeID", id)
 
 	return id, nil
 }
@@ -526,28 +519,26 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	log.Printf("Installing PrivateLayer service...\n")
-	log.Printf("Executable: %s\n", exePath)
-	log.Printf("Config dir: %s\n", configDir)
+	slog.Info("installing PrivateLayer service", "executable", exePath, "configDir", configDir)
 
 	if runtime.GOOS == "windows" {
 		return runAsService(configDir, exePath)
 	}
 
-	log.Println("Service installation not supported on this platform")
+	slog.Warn("service installation not supported on this platform")
 	return nil
 }
 
 func runUninstall(cmd *cobra.Command, args []string) error {
-	log.Printf("Uninstalling PrivateLayer service...\n")
+	slog.Info("uninstalling PrivateLayer service")
 
 	if runtime.GOOS == "windows" {
 		if err := stopService(); err != nil {
-			log.Printf("Warning: Could not stop service: %v\n", err)
+			slog.Warn("could not stop service", "err", err)
 		}
 		return removeService()
 	}
 
-	log.Println("Service uninstallation not supported on this platform")
+	slog.Warn("service uninstallation not supported on this platform")
 	return nil
 }
