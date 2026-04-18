@@ -15,6 +15,9 @@ service ManagementService {
   rpc CreateAPIKey(CreateAPIKeyRequest) returns (CreateAPIKeyResponse);
   rpc ListAPIKeys(ListAPIKeysRequest) returns (ListAPIKeysResponse);
   rpc RevokeAPIKey(RevokeAPIKeyRequest) returns (RevokeAPIKeyResponse);
+  rpc GetAuditLogs(GetAuditLogsRequest) returns (GetAuditLogsResponse);
+  rpc RecordConsent(RecordConsentRequest) returns (RecordConsentResponse);
+  rpc HardDeleteNode(HardDeleteNodeRequest) returns (HardDeleteNodeResponse);
 }
 
 message Org {
@@ -125,3 +128,38 @@ message RevokeAPIKeyRequest {
 }
 
 message RevokeAPIKeyResponse {}
+
+message AuditLog {
+  string id = 1;
+  string action = 2;
+  string actor = 3;
+  string target = 4;
+  string ip = 5;
+  repeated string details = 6;
+  int64 created_at = 7;
+}
+
+message GetAuditLogsRequest {
+  int32 limit = 1;
+}
+
+message GetAuditLogsResponse {
+  repeated AuditLog logs = 1;
+}
+
+message RecordConsentRequest {
+  string node_id = 1;
+  bool consent_given = 2;
+}
+
+message RecordConsentResponse {
+  bool success = 1;
+}
+
+message HardDeleteNodeRequest {
+  string id = 1;
+}
+
+message HardDeleteNodeResponse {
+  bool success = 1;
+}

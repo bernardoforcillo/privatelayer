@@ -40,13 +40,20 @@ func NewAPIKeyInterceptor(database *db.Database, bootstrapKey string) connect.Un
 			}
 
 			// All other calls: resolve org from API key
+			// Use constant-time comparison to prevent timing attacks
 			hash := hashAPIKey(apiKey)
 			key, err := database.GetAPIKey(hash)
 			if err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
+					// Perform constant-time dummy hash to maintain timing consistency
+					_ = hashAPIKey("dummy")
 					return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("invalid API key"))
 				}
 				return nil, connect.NewError(connect.CodeInternal, errors.New("failed to validate API key"))
+			}
+			// Verify key hash with constant-time comparison
+			if subtle.ConstantTimeCompare([]byte(key.Key), []byte(hash)) == 0 {
+				return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("invalid API key"))
 			}
 
 			ctx = db.WithOrgIDCtx(ctx, key.OrgID)

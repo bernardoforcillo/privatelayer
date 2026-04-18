@@ -328,3 +328,83 @@ func (s *ManagementService) RevokeAPIKey(ctx context.Context, req *connect.Reque
 	}
 	return connect.NewResponse(&managementv1.RevokeAPIKeyResponse{}), nil
 }
+
+func (s *ManagementService) GetAuditLogs(ctx context.Context, req *connect.Request[managementv1.GetAuditLogsRequest]) (*connect.Response[managementv1.GetAuditLogsResponse], error) {
+	orgID, ok := db.OrgIDFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("missing org context"))
+	}
+	limit := 100
+	if req.Msg.Limit > 0 {
+		limit = int(req.Msg.Limit)
+	}
+	logs, err := s.db.GetAuditLogs(orgID, limit)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	result := make([]*managementv1.AuditLog, 0)
+	for _, l := range logs {
+		result = append(result, &managementv1.AuditLog{
+			Id:        fmt.Sprintf("%d", l.ID),
+			Action:    l.Action,
+			Actor:     l.Actor,
+			Target:    l.Target,
+			Ip:        l.IP,
+			Details:   []string(l.Details),
+			CreatedAt: l.CreatedAt.UnixMilli(),
+		})
+	}
+	return connect.NewResponse(&managementv1.GetAuditLogsResponse{Logs: result}), nil
+}
+
+func (s *ManagementService) RecordConsent(ctx context.Context, req *connect.Request[managementv1.RecordConsentRequest]) (*connect.Response[managementv1.RecordConsentResponse], error) {
+	orgID, ok := db.OrgIDFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("missing org context"))
+	}
+	node, err := s.db.GetNodeByMachineKey(req.Msg.NodeId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("node not found"))
+	}
+	if node.OrgID != orgID {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("node belongs to different org"))
+	}
+	if err := s.db.UpdateNodeConsent(node.ID, req.Msg.ConsentGiven); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	_ = s.db.CreateAuditLog(&db.AuditLog{
+		Action:  "consent_recorded",
+		Actor:   orgID.String(),
+		Target:  node.MachineKey,
+		IP:      "",
+		Details: db.StringJSON{fmt.Sprintf("consent_given:%v", req.Msg.ConsentGiven)},
+		OrgID:   orgID,
+	})
+	return connect.NewResponse(&managementv1.RecordConsentResponse{Success: true}), nil
+}
+
+func (s *ManagementService) HardDeleteNode(ctx context.Context, req *connect.Request[managementv1.HardDeleteNodeRequest]) (*connect.Response[managementv1.HardDeleteNodeResponse], error) {
+	orgID, ok := db.OrgIDFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("missing org context"))
+	}
+	node, err := s.db.GetNodeByMachineKey(req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("node not found"))
+	}
+	if node.OrgID != orgID {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("node belongs to different org"))
+	}
+	if err := s.db.HardDeleteNode(node.ID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	_ = s.db.CreateAuditLog(&db.AuditLog{
+		Action:  "node_hard_deleted",
+		Actor:   orgID.String(),
+		Target:  node.MachineKey,
+		IP:      "",
+		Details: db.StringJSON{"hard_delete"},
+		OrgID:   orgID,
+	})
+	return connect.NewResponse(&managementv1.HardDeleteNodeResponse{Success: true}), nil
+}

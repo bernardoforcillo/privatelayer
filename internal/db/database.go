@@ -99,6 +99,7 @@ func (d *Database) migrate() error {
 		&NodeRoute{},
 		&PreAuthKey{},
 		&APIKey{},
+		&AuditLog{},
 	)
 }
 
@@ -329,6 +330,49 @@ func (d *Database) GetAPIKeyByID(id uint) (*APIKey, error) {
 	var key APIKey
 	err := d.db.First(&key, id).Error
 	return &key, err
+}
+
+func (d *Database) CreateAuditLog(log *AuditLog) error {
+	return d.db.Create(log).Error
+}
+
+func (d *Database) GetAuditLogs(orgID uuid.UUID, limit int) ([]AuditLog, error) {
+	var logs []AuditLog
+	query := d.db.Where("org_id = ?", orgID).Order("created_at DESC")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	err := query.Find(&logs).Error
+	return logs, err
+}
+
+func (d *Database) HardDeleteNode(id uint) error {
+	return d.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("node_id = ?", id).Delete(&NodeStatus{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("node_id = ?", id).Delete(&NodeRoute{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("target = ?", fmt.Sprintf("node:%d", id)).Delete(&AuditLog{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&Node{}, id).Error
+	})
+}
+
+func (d *Database) UpdateNodeConsent(id uint, given bool) error {
+	now := time.Now()
+	return d.db.Model(&Node{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"consent_given": given,
+		"consent_at":    now,
+	}).Error
+}
+
+func (d *Database) GetNodesForRetention(orgID uuid.UUID, before time.Time) ([]Node, error) {
+	var nodes []Node
+	err := d.db.Where("org_id = ? AND created_at < ? AND consent_given = ?", orgID, before, false).Find(&nodes).Error
+	return nodes, err
 }
 
 func (d *Database) Close() error {

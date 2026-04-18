@@ -25,6 +25,28 @@ dev_mode: false
 # tls_cert_file: /etc/privatelayer/tls.crt
 # tls_key_file:  /etc/privatelayer/tls.key
 
+# DNS Configuration
+dns:
+  enabled: true
+  ip: "0.0.0.0"
+  port: 53
+  domain: "privatelayer.local"
+
+# DERP Configuration
+derp:
+  enabled: true
+  port: 443
+  stun_port: 3478
+
+# Firewall/ACL Configuration
+firewall:
+  enabled: true
+  default_policy: "deny"
+
+# Data Retention (days, default: 90)
+retention:
+  default_days: 90
+
 database:
   type: postgres   # "postgres" or "sqlite"
   dsn: "host=localhost user=privatelayer password=privatelayer dbname=privatelayer sslmode=disable"

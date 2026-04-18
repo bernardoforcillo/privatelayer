@@ -14,13 +14,13 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/bernardoforcillo/privatelayer/internal/db"
+	meshv1 "github.com/bernardoforcillo/privatelayer/internal/gen/mesh/v1"
+	"github.com/bernardoforcillo/privatelayer/internal/gen/mesh/v1/meshv1connect"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"gorm.io/gorm"
-	"github.com/bernardoforcillo/privatelayer/internal/db"
-	meshv1 "github.com/bernardoforcillo/privatelayer/internal/gen/mesh/v1"
-	"github.com/bernardoforcillo/privatelayer/internal/gen/mesh/v1/meshv1connect"
 )
 
 var (
@@ -69,12 +69,12 @@ type Server struct {
 	peers            map[string]*PeerInfo
 	mu               sync.RWMutex
 	heartbeatTimeout time.Duration
-	peerStreams       map[string]*connect.ServerStream[meshv1.PeerList]
+	peerStreams      map[string]*connect.ServerStream[meshv1.PeerList]
 	streamMu         sync.RWMutex
-	mapStreams        map[string]*connect.ServerStream[meshv1.NetworkMap]
+	mapStreams       map[string]*connect.ServerStream[meshv1.NetworkMap]
 	mapStreamMu      sync.RWMutex
 	sessionsMu       sync.RWMutex
-	sessions         map[string]string // sha256(token) → nodeID
+	sessions         map[string]*sessionInfo // sha256(token) → sessionInfo
 }
 
 func NewServer(config *ServerConfig, database *db.Database) *Server {
@@ -86,10 +86,11 @@ func NewServer(config *ServerConfig, database *db.Database) *Server {
 		database:         database,
 		peers:            make(map[string]*PeerInfo),
 		heartbeatTimeout: config.HeartbeatTimeout,
-		peerStreams:       make(map[string]*connect.ServerStream[meshv1.PeerList]),
-		mapStreams:        make(map[string]*connect.ServerStream[meshv1.NetworkMap]),
-		sessions:         make(map[string]string),
+		peerStreams:      make(map[string]*connect.ServerStream[meshv1.PeerList]),
+		mapStreams:       make(map[string]*connect.ServerStream[meshv1.NetworkMap]),
+		sessions:         make(map[string]*sessionInfo),
 	}
+	go s.CleanupSessions()
 	s.loadStateFromDB()
 	return s
 }
@@ -148,8 +149,9 @@ func (s *Server) Register(ctx context.Context, req *connect.Request[meshv1.Regis
 		if existingNode.OrgID != org.ID {
 			return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("node ID belongs to different organization"))
 		}
+		// Preserve existing IP address
 		peerIP = strings.TrimSuffix(string(existingNode.IPAddresses[0]), "/32")
-	case lookupErr == nil || errors.Is(lookupErr, gorm.ErrRecordNotFound):
+	case lookupErr == gorm.ErrRecordNotFound || errors.Is(lookupErr, gorm.ErrRecordNotFound):
 		// New node: allocate a fresh IP
 		peerIP, err = s.database.AllocateIP(org.ID, org.CIDR)
 		if err != nil {
@@ -218,7 +220,7 @@ func (s *Server) Register(ctx context.Context, req *connect.Request[meshv1.Regis
 	tokenHash := hashToken(rawToken)
 
 	s.sessionsMu.Lock()
-	s.sessions[tokenHash] = nodeID
+	s.sessions[tokenHash] = &sessionInfo{nodeID: nodeID, createdAt: time.Now()}
 	s.sessionsMu.Unlock()
 
 	return connect.NewResponse(&meshv1.RegisterResponse{
@@ -542,24 +544,49 @@ func (s *Server) CleanupStalePeers() {
 	}
 }
 
+// sessionInfo holds token metadata for cleanup.
+type sessionInfo struct {
+	nodeID    string
+	createdAt time.Time
+}
+
 // ValidateNodeToken checks the session token and returns the associated nodeID.
 func (s *Server) ValidateNodeToken(token string) (nodeID string, ok bool) {
 	hash := hashToken(token)
 	s.sessionsMu.RLock()
-	nodeID, ok = s.sessions[hash]
-	s.sessionsMu.RUnlock()
-	return
+	defer s.sessionsMu.RUnlock()
+	if info, ok := s.sessions[hash]; ok {
+		return info.nodeID, true
+	}
+	return "", false
 }
 
 // DeleteNodeToken removes all session tokens for a given nodeID (called on Disconnect).
 func (s *Server) DeleteNodeToken(nodeID string) {
 	s.sessionsMu.Lock()
-	for hash, id := range s.sessions {
-		if id == nodeID {
+	defer s.sessionsMu.Unlock()
+	for hash, info := range s.sessions {
+		if info.nodeID == nodeID {
 			delete(s.sessions, hash)
 		}
 	}
-	s.sessionsMu.Unlock()
+}
+
+// CleanupSessions periodically removes expired session tokens.
+func (s *Server) CleanupSessions() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	const sessionTTL = 24 * time.Hour // Sessions expire after 24 hours
+	for range ticker.C {
+		s.sessionsMu.Lock()
+		now := time.Now()
+		for hash, info := range s.sessions {
+			if now.Sub(info.createdAt) > sessionTTL {
+				delete(s.sessions, hash)
+			}
+		}
+		s.sessionsMu.Unlock()
+	}
 }
 
 func generateSessionToken() (string, error) {

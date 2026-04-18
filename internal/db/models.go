@@ -10,11 +10,12 @@ import (
 )
 
 type Org struct {
-	ID        uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
-	Name      string    `gorm:"size:255;not null" json:"name"`
-	Slug      string    `gorm:"uniqueIndex;size:100;not null" json:"slug"`
-	CIDR      string    `gorm:"size:20;not null;default:'10.0.0.0/8'" json:"cidr"`
-	CreatedAt time.Time `json:"created_at"`
+	ID            uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+	Name          string    `gorm:"size:255;not null" json:"name"`
+	Slug          string    `gorm:"uniqueIndex;size:100;not null" json:"slug"`
+	CIDR          string    `gorm:"size:20;not null;default:'10.0.0.0/8'" json:"cidr"`
+	RetentionDays int32     `gorm:"default:90" json:"retention_days"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 func (Org) TableName() string { return "orgs" }
@@ -44,6 +45,8 @@ type Node struct {
 	Online        bool       `gorm:"default:false" json:"online"`
 	LastSeen      time.Time  `gorm:"index" json:"last_seen"`
 	LastHandshake time.Time  `json:"last_handshake"`
+	ConsentGiven  bool       `gorm:"default:false" json:"consent_given"`
+	ConsentAt     *time.Time `json:"consent_at"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 
@@ -200,4 +203,19 @@ func (n *Node) BeforeCreate(tx *gorm.DB) error {
 func (n *Node) BeforeUpdate(tx *gorm.DB) error {
 	n.UpdatedAt = time.Now()
 	return nil
+}
+
+type AuditLog struct {
+	ID        uint       `gorm:"primarykey" json:"id"`
+	Action    string     `gorm:"size:64;not null" json:"action"`
+	Actor     string     `gorm:"size:64" json:"actor"`
+	Target    string     `gorm:"size:64" json:"target"`
+	IP        string     `gorm:"size:45" json:"ip"`
+	Details   StringJSON `gorm:"type:jsonb" json:"details"`
+	OrgID     uuid.UUID  `gorm:"type:uuid;index" json:"org_id"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+func (AuditLog) TableName() string {
+	return "audit_logs"
 }

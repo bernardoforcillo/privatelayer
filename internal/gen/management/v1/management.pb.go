@@ -1229,6 +1229,370 @@ func (*RevokeAPIKeyResponse) Descriptor() ([]byte, []int) {
 	return file_management_v1_management_proto_rawDescGZIP(), []int{23}
 }
 
+type AuditLog struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Action        string                 `protobuf:"bytes,2,opt,name=action,proto3" json:"action,omitempty"`
+	Actor         string                 `protobuf:"bytes,3,opt,name=actor,proto3" json:"actor,omitempty"`
+	Target        string                 `protobuf:"bytes,4,opt,name=target,proto3" json:"target,omitempty"`
+	Ip            string                 `protobuf:"bytes,5,opt,name=ip,proto3" json:"ip,omitempty"`
+	Details       []string               `protobuf:"bytes,6,rep,name=details,proto3" json:"details,omitempty"`
+	CreatedAt     int64                  `protobuf:"varint,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuditLog) Reset() {
+	*x = AuditLog{}
+	mi := &file_management_v1_management_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuditLog) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuditLog) ProtoMessage() {}
+
+func (x *AuditLog) ProtoReflect() protoreflect.Message {
+	mi := &file_management_v1_management_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuditLog.ProtoReflect.Descriptor instead.
+func (*AuditLog) Descriptor() ([]byte, []int) {
+	return file_management_v1_management_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *AuditLog) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *AuditLog) GetAction() string {
+	if x != nil {
+		return x.Action
+	}
+	return ""
+}
+
+func (x *AuditLog) GetActor() string {
+	if x != nil {
+		return x.Actor
+	}
+	return ""
+}
+
+func (x *AuditLog) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+func (x *AuditLog) GetIp() string {
+	if x != nil {
+		return x.Ip
+	}
+	return ""
+}
+
+func (x *AuditLog) GetDetails() []string {
+	if x != nil {
+		return x.Details
+	}
+	return nil
+}
+
+func (x *AuditLog) GetCreatedAt() int64 {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return 0
+}
+
+type GetAuditLogsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Limit         int32                  `protobuf:"varint,1,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAuditLogsRequest) Reset() {
+	*x = GetAuditLogsRequest{}
+	mi := &file_management_v1_management_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAuditLogsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAuditLogsRequest) ProtoMessage() {}
+
+func (x *GetAuditLogsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_management_v1_management_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAuditLogsRequest.ProtoReflect.Descriptor instead.
+func (*GetAuditLogsRequest) Descriptor() ([]byte, []int) {
+	return file_management_v1_management_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *GetAuditLogsRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type GetAuditLogsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Logs          []*AuditLog            `protobuf:"bytes,1,rep,name=logs,proto3" json:"logs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAuditLogsResponse) Reset() {
+	*x = GetAuditLogsResponse{}
+	mi := &file_management_v1_management_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAuditLogsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAuditLogsResponse) ProtoMessage() {}
+
+func (x *GetAuditLogsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_management_v1_management_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAuditLogsResponse.ProtoReflect.Descriptor instead.
+func (*GetAuditLogsResponse) Descriptor() ([]byte, []int) {
+	return file_management_v1_management_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *GetAuditLogsResponse) GetLogs() []*AuditLog {
+	if x != nil {
+		return x.Logs
+	}
+	return nil
+}
+
+type RecordConsentRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	ConsentGiven  bool                   `protobuf:"varint,2,opt,name=consent_given,json=consentGiven,proto3" json:"consent_given,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecordConsentRequest) Reset() {
+	*x = RecordConsentRequest{}
+	mi := &file_management_v1_management_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordConsentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordConsentRequest) ProtoMessage() {}
+
+func (x *RecordConsentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_management_v1_management_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordConsentRequest.ProtoReflect.Descriptor instead.
+func (*RecordConsentRequest) Descriptor() ([]byte, []int) {
+	return file_management_v1_management_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *RecordConsentRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *RecordConsentRequest) GetConsentGiven() bool {
+	if x != nil {
+		return x.ConsentGiven
+	}
+	return false
+}
+
+type RecordConsentResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecordConsentResponse) Reset() {
+	*x = RecordConsentResponse{}
+	mi := &file_management_v1_management_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordConsentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordConsentResponse) ProtoMessage() {}
+
+func (x *RecordConsentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_management_v1_management_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordConsentResponse.ProtoReflect.Descriptor instead.
+func (*RecordConsentResponse) Descriptor() ([]byte, []int) {
+	return file_management_v1_management_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *RecordConsentResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+type HardDeleteNodeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HardDeleteNodeRequest) Reset() {
+	*x = HardDeleteNodeRequest{}
+	mi := &file_management_v1_management_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HardDeleteNodeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HardDeleteNodeRequest) ProtoMessage() {}
+
+func (x *HardDeleteNodeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_management_v1_management_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HardDeleteNodeRequest.ProtoReflect.Descriptor instead.
+func (*HardDeleteNodeRequest) Descriptor() ([]byte, []int) {
+	return file_management_v1_management_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *HardDeleteNodeRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type HardDeleteNodeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HardDeleteNodeResponse) Reset() {
+	*x = HardDeleteNodeResponse{}
+	mi := &file_management_v1_management_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HardDeleteNodeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HardDeleteNodeResponse) ProtoMessage() {}
+
+func (x *HardDeleteNodeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_management_v1_management_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HardDeleteNodeResponse.ProtoReflect.Descriptor instead.
+func (*HardDeleteNodeResponse) Descriptor() ([]byte, []int) {
+	return file_management_v1_management_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *HardDeleteNodeResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
 var File_management_v1_management_proto protoreflect.FileDescriptor
 
 const file_management_v1_management_proto_rawDesc = "" +
@@ -1309,7 +1673,29 @@ const file_management_v1_management_proto_rawDesc = "" +
 	"\x04keys\x18\x01 \x03(\v2\x15.management.v1.APIKeyR\x04keys\"%\n" +
 	"\x13RevokeAPIKeyRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x16\n" +
-	"\x14RevokeAPIKeyResponse2\x81\a\n" +
+	"\x14RevokeAPIKeyResponse\"\xa9\x01\n" +
+	"\bAuditLog\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
+	"\x06action\x18\x02 \x01(\tR\x06action\x12\x14\n" +
+	"\x05actor\x18\x03 \x01(\tR\x05actor\x12\x16\n" +
+	"\x06target\x18\x04 \x01(\tR\x06target\x12\x0e\n" +
+	"\x02ip\x18\x05 \x01(\tR\x02ip\x12\x18\n" +
+	"\adetails\x18\x06 \x03(\tR\adetails\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\a \x01(\x03R\tcreatedAt\"+\n" +
+	"\x13GetAuditLogsRequest\x12\x14\n" +
+	"\x05limit\x18\x01 \x01(\x05R\x05limit\"C\n" +
+	"\x14GetAuditLogsResponse\x12+\n" +
+	"\x04logs\x18\x01 \x03(\v2\x17.management.v1.AuditLogR\x04logs\"T\n" +
+	"\x14RecordConsentRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12#\n" +
+	"\rconsent_given\x18\x02 \x01(\bR\fconsentGiven\"1\n" +
+	"\x15RecordConsentResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\"'\n" +
+	"\x15HardDeleteNodeRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"2\n" +
+	"\x16HardDeleteNodeResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess2\x95\t\n" +
 	"\x11ManagementService\x12N\n" +
 	"\tCreateOrg\x12\x1f.management.v1.CreateOrgRequest\x1a .management.v1.CreateOrgResponse\x12E\n" +
 	"\x06GetOrg\x12\x1c.management.v1.GetOrgRequest\x1a\x1d.management.v1.GetOrgResponse\x12N\n" +
@@ -1321,7 +1707,10 @@ const file_management_v1_management_proto_rawDesc = "" +
 	"\x10RevokePreAuthKey\x12&.management.v1.RevokePreAuthKeyRequest\x1a'.management.v1.RevokePreAuthKeyResponse\x12W\n" +
 	"\fCreateAPIKey\x12\".management.v1.CreateAPIKeyRequest\x1a#.management.v1.CreateAPIKeyResponse\x12T\n" +
 	"\vListAPIKeys\x12!.management.v1.ListAPIKeysRequest\x1a\".management.v1.ListAPIKeysResponse\x12W\n" +
-	"\fRevokeAPIKey\x12\".management.v1.RevokeAPIKeyRequest\x1a#.management.v1.RevokeAPIKeyResponseBRZPgithub.com/bernardoforcillo/privatelayer/internal/gen/management/v1;managementv1b\x06proto3"
+	"\fRevokeAPIKey\x12\".management.v1.RevokeAPIKeyRequest\x1a#.management.v1.RevokeAPIKeyResponse\x12W\n" +
+	"\fGetAuditLogs\x12\".management.v1.GetAuditLogsRequest\x1a#.management.v1.GetAuditLogsResponse\x12Z\n" +
+	"\rRecordConsent\x12#.management.v1.RecordConsentRequest\x1a$.management.v1.RecordConsentResponse\x12]\n" +
+	"\x0eHardDeleteNode\x12$.management.v1.HardDeleteNodeRequest\x1a%.management.v1.HardDeleteNodeResponseBRZPgithub.com/bernardoforcillo/privatelayer/internal/gen/management/v1;managementv1b\x06proto3"
 
 var (
 	file_management_v1_management_proto_rawDescOnce sync.Once
@@ -1335,7 +1724,7 @@ func file_management_v1_management_proto_rawDescGZIP() []byte {
 	return file_management_v1_management_proto_rawDescData
 }
 
-var file_management_v1_management_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_management_v1_management_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_management_v1_management_proto_goTypes = []any{
 	(*Org)(nil),                      // 0: management.v1.Org
 	(*CreateOrgRequest)(nil),         // 1: management.v1.CreateOrgRequest
@@ -1361,6 +1750,13 @@ var file_management_v1_management_proto_goTypes = []any{
 	(*ListAPIKeysResponse)(nil),      // 21: management.v1.ListAPIKeysResponse
 	(*RevokeAPIKeyRequest)(nil),      // 22: management.v1.RevokeAPIKeyRequest
 	(*RevokeAPIKeyResponse)(nil),     // 23: management.v1.RevokeAPIKeyResponse
+	(*AuditLog)(nil),                 // 24: management.v1.AuditLog
+	(*GetAuditLogsRequest)(nil),      // 25: management.v1.GetAuditLogsRequest
+	(*GetAuditLogsResponse)(nil),     // 26: management.v1.GetAuditLogsResponse
+	(*RecordConsentRequest)(nil),     // 27: management.v1.RecordConsentRequest
+	(*RecordConsentResponse)(nil),    // 28: management.v1.RecordConsentResponse
+	(*HardDeleteNodeRequest)(nil),    // 29: management.v1.HardDeleteNodeRequest
+	(*HardDeleteNodeResponse)(nil),   // 30: management.v1.HardDeleteNodeResponse
 }
 var file_management_v1_management_proto_depIdxs = []int32{
 	0,  // 0: management.v1.CreateOrgResponse.org:type_name -> management.v1.Org
@@ -1370,31 +1766,38 @@ var file_management_v1_management_proto_depIdxs = []int32{
 	10, // 4: management.v1.ListPreAuthKeysResponse.keys:type_name -> management.v1.PreAuthKey
 	17, // 5: management.v1.CreateAPIKeyResponse.key:type_name -> management.v1.APIKey
 	17, // 6: management.v1.ListAPIKeysResponse.keys:type_name -> management.v1.APIKey
-	1,  // 7: management.v1.ManagementService.CreateOrg:input_type -> management.v1.CreateOrgRequest
-	3,  // 8: management.v1.ManagementService.GetOrg:input_type -> management.v1.GetOrgRequest
-	6,  // 9: management.v1.ManagementService.ListNodes:input_type -> management.v1.ListNodesRequest
-	8,  // 10: management.v1.ManagementService.DeleteNode:input_type -> management.v1.DeleteNodeRequest
-	11, // 11: management.v1.ManagementService.CreatePreAuthKey:input_type -> management.v1.CreatePreAuthKeyRequest
-	13, // 12: management.v1.ManagementService.ListPreAuthKeys:input_type -> management.v1.ListPreAuthKeysRequest
-	15, // 13: management.v1.ManagementService.RevokePreAuthKey:input_type -> management.v1.RevokePreAuthKeyRequest
-	18, // 14: management.v1.ManagementService.CreateAPIKey:input_type -> management.v1.CreateAPIKeyRequest
-	20, // 15: management.v1.ManagementService.ListAPIKeys:input_type -> management.v1.ListAPIKeysRequest
-	22, // 16: management.v1.ManagementService.RevokeAPIKey:input_type -> management.v1.RevokeAPIKeyRequest
-	2,  // 17: management.v1.ManagementService.CreateOrg:output_type -> management.v1.CreateOrgResponse
-	4,  // 18: management.v1.ManagementService.GetOrg:output_type -> management.v1.GetOrgResponse
-	7,  // 19: management.v1.ManagementService.ListNodes:output_type -> management.v1.ListNodesResponse
-	9,  // 20: management.v1.ManagementService.DeleteNode:output_type -> management.v1.DeleteNodeResponse
-	12, // 21: management.v1.ManagementService.CreatePreAuthKey:output_type -> management.v1.CreatePreAuthKeyResponse
-	14, // 22: management.v1.ManagementService.ListPreAuthKeys:output_type -> management.v1.ListPreAuthKeysResponse
-	16, // 23: management.v1.ManagementService.RevokePreAuthKey:output_type -> management.v1.RevokePreAuthKeyResponse
-	19, // 24: management.v1.ManagementService.CreateAPIKey:output_type -> management.v1.CreateAPIKeyResponse
-	21, // 25: management.v1.ManagementService.ListAPIKeys:output_type -> management.v1.ListAPIKeysResponse
-	23, // 26: management.v1.ManagementService.RevokeAPIKey:output_type -> management.v1.RevokeAPIKeyResponse
-	17, // [17:27] is the sub-list for method output_type
-	7,  // [7:17] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	24, // 7: management.v1.GetAuditLogsResponse.logs:type_name -> management.v1.AuditLog
+	1,  // 8: management.v1.ManagementService.CreateOrg:input_type -> management.v1.CreateOrgRequest
+	3,  // 9: management.v1.ManagementService.GetOrg:input_type -> management.v1.GetOrgRequest
+	6,  // 10: management.v1.ManagementService.ListNodes:input_type -> management.v1.ListNodesRequest
+	8,  // 11: management.v1.ManagementService.DeleteNode:input_type -> management.v1.DeleteNodeRequest
+	11, // 12: management.v1.ManagementService.CreatePreAuthKey:input_type -> management.v1.CreatePreAuthKeyRequest
+	13, // 13: management.v1.ManagementService.ListPreAuthKeys:input_type -> management.v1.ListPreAuthKeysRequest
+	15, // 14: management.v1.ManagementService.RevokePreAuthKey:input_type -> management.v1.RevokePreAuthKeyRequest
+	18, // 15: management.v1.ManagementService.CreateAPIKey:input_type -> management.v1.CreateAPIKeyRequest
+	20, // 16: management.v1.ManagementService.ListAPIKeys:input_type -> management.v1.ListAPIKeysRequest
+	22, // 17: management.v1.ManagementService.RevokeAPIKey:input_type -> management.v1.RevokeAPIKeyRequest
+	25, // 18: management.v1.ManagementService.GetAuditLogs:input_type -> management.v1.GetAuditLogsRequest
+	27, // 19: management.v1.ManagementService.RecordConsent:input_type -> management.v1.RecordConsentRequest
+	29, // 20: management.v1.ManagementService.HardDeleteNode:input_type -> management.v1.HardDeleteNodeRequest
+	2,  // 21: management.v1.ManagementService.CreateOrg:output_type -> management.v1.CreateOrgResponse
+	4,  // 22: management.v1.ManagementService.GetOrg:output_type -> management.v1.GetOrgResponse
+	7,  // 23: management.v1.ManagementService.ListNodes:output_type -> management.v1.ListNodesResponse
+	9,  // 24: management.v1.ManagementService.DeleteNode:output_type -> management.v1.DeleteNodeResponse
+	12, // 25: management.v1.ManagementService.CreatePreAuthKey:output_type -> management.v1.CreatePreAuthKeyResponse
+	14, // 26: management.v1.ManagementService.ListPreAuthKeys:output_type -> management.v1.ListPreAuthKeysResponse
+	16, // 27: management.v1.ManagementService.RevokePreAuthKey:output_type -> management.v1.RevokePreAuthKeyResponse
+	19, // 28: management.v1.ManagementService.CreateAPIKey:output_type -> management.v1.CreateAPIKeyResponse
+	21, // 29: management.v1.ManagementService.ListAPIKeys:output_type -> management.v1.ListAPIKeysResponse
+	23, // 30: management.v1.ManagementService.RevokeAPIKey:output_type -> management.v1.RevokeAPIKeyResponse
+	26, // 31: management.v1.ManagementService.GetAuditLogs:output_type -> management.v1.GetAuditLogsResponse
+	28, // 32: management.v1.ManagementService.RecordConsent:output_type -> management.v1.RecordConsentResponse
+	30, // 33: management.v1.ManagementService.HardDeleteNode:output_type -> management.v1.HardDeleteNodeResponse
+	21, // [21:34] is the sub-list for method output_type
+	8,  // [8:21] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_management_v1_management_proto_init() }
@@ -1408,7 +1811,7 @@ func file_management_v1_management_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_management_v1_management_proto_rawDesc), len(file_management_v1_management_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   24,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

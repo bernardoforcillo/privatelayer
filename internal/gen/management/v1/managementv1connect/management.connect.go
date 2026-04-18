@@ -63,6 +63,15 @@ const (
 	// ManagementServiceRevokeAPIKeyProcedure is the fully-qualified name of the ManagementService's
 	// RevokeAPIKey RPC.
 	ManagementServiceRevokeAPIKeyProcedure = "/management.v1.ManagementService/RevokeAPIKey"
+	// ManagementServiceGetAuditLogsProcedure is the fully-qualified name of the ManagementService's
+	// GetAuditLogs RPC.
+	ManagementServiceGetAuditLogsProcedure = "/management.v1.ManagementService/GetAuditLogs"
+	// ManagementServiceRecordConsentProcedure is the fully-qualified name of the ManagementService's
+	// RecordConsent RPC.
+	ManagementServiceRecordConsentProcedure = "/management.v1.ManagementService/RecordConsent"
+	// ManagementServiceHardDeleteNodeProcedure is the fully-qualified name of the ManagementService's
+	// HardDeleteNode RPC.
+	ManagementServiceHardDeleteNodeProcedure = "/management.v1.ManagementService/HardDeleteNode"
 )
 
 // ManagementServiceClient is a client for the management.v1.ManagementService service.
@@ -77,6 +86,9 @@ type ManagementServiceClient interface {
 	CreateAPIKey(context.Context, *connect.Request[v1.CreateAPIKeyRequest]) (*connect.Response[v1.CreateAPIKeyResponse], error)
 	ListAPIKeys(context.Context, *connect.Request[v1.ListAPIKeysRequest]) (*connect.Response[v1.ListAPIKeysResponse], error)
 	RevokeAPIKey(context.Context, *connect.Request[v1.RevokeAPIKeyRequest]) (*connect.Response[v1.RevokeAPIKeyResponse], error)
+	GetAuditLogs(context.Context, *connect.Request[v1.GetAuditLogsRequest]) (*connect.Response[v1.GetAuditLogsResponse], error)
+	RecordConsent(context.Context, *connect.Request[v1.RecordConsentRequest]) (*connect.Response[v1.RecordConsentResponse], error)
+	HardDeleteNode(context.Context, *connect.Request[v1.HardDeleteNodeRequest]) (*connect.Response[v1.HardDeleteNodeResponse], error)
 }
 
 // NewManagementServiceClient constructs a client for the management.v1.ManagementService service.
@@ -150,6 +162,24 @@ func NewManagementServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(managementServiceMethods.ByName("RevokeAPIKey")),
 			connect.WithClientOptions(opts...),
 		),
+		getAuditLogs: connect.NewClient[v1.GetAuditLogsRequest, v1.GetAuditLogsResponse](
+			httpClient,
+			baseURL+ManagementServiceGetAuditLogsProcedure,
+			connect.WithSchema(managementServiceMethods.ByName("GetAuditLogs")),
+			connect.WithClientOptions(opts...),
+		),
+		recordConsent: connect.NewClient[v1.RecordConsentRequest, v1.RecordConsentResponse](
+			httpClient,
+			baseURL+ManagementServiceRecordConsentProcedure,
+			connect.WithSchema(managementServiceMethods.ByName("RecordConsent")),
+			connect.WithClientOptions(opts...),
+		),
+		hardDeleteNode: connect.NewClient[v1.HardDeleteNodeRequest, v1.HardDeleteNodeResponse](
+			httpClient,
+			baseURL+ManagementServiceHardDeleteNodeProcedure,
+			connect.WithSchema(managementServiceMethods.ByName("HardDeleteNode")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -165,6 +195,9 @@ type managementServiceClient struct {
 	createAPIKey     *connect.Client[v1.CreateAPIKeyRequest, v1.CreateAPIKeyResponse]
 	listAPIKeys      *connect.Client[v1.ListAPIKeysRequest, v1.ListAPIKeysResponse]
 	revokeAPIKey     *connect.Client[v1.RevokeAPIKeyRequest, v1.RevokeAPIKeyResponse]
+	getAuditLogs     *connect.Client[v1.GetAuditLogsRequest, v1.GetAuditLogsResponse]
+	recordConsent    *connect.Client[v1.RecordConsentRequest, v1.RecordConsentResponse]
+	hardDeleteNode   *connect.Client[v1.HardDeleteNodeRequest, v1.HardDeleteNodeResponse]
 }
 
 // CreateOrg calls management.v1.ManagementService.CreateOrg.
@@ -217,6 +250,21 @@ func (c *managementServiceClient) RevokeAPIKey(ctx context.Context, req *connect
 	return c.revokeAPIKey.CallUnary(ctx, req)
 }
 
+// GetAuditLogs calls management.v1.ManagementService.GetAuditLogs.
+func (c *managementServiceClient) GetAuditLogs(ctx context.Context, req *connect.Request[v1.GetAuditLogsRequest]) (*connect.Response[v1.GetAuditLogsResponse], error) {
+	return c.getAuditLogs.CallUnary(ctx, req)
+}
+
+// RecordConsent calls management.v1.ManagementService.RecordConsent.
+func (c *managementServiceClient) RecordConsent(ctx context.Context, req *connect.Request[v1.RecordConsentRequest]) (*connect.Response[v1.RecordConsentResponse], error) {
+	return c.recordConsent.CallUnary(ctx, req)
+}
+
+// HardDeleteNode calls management.v1.ManagementService.HardDeleteNode.
+func (c *managementServiceClient) HardDeleteNode(ctx context.Context, req *connect.Request[v1.HardDeleteNodeRequest]) (*connect.Response[v1.HardDeleteNodeResponse], error) {
+	return c.hardDeleteNode.CallUnary(ctx, req)
+}
+
 // ManagementServiceHandler is an implementation of the management.v1.ManagementService service.
 type ManagementServiceHandler interface {
 	CreateOrg(context.Context, *connect.Request[v1.CreateOrgRequest]) (*connect.Response[v1.CreateOrgResponse], error)
@@ -229,6 +277,9 @@ type ManagementServiceHandler interface {
 	CreateAPIKey(context.Context, *connect.Request[v1.CreateAPIKeyRequest]) (*connect.Response[v1.CreateAPIKeyResponse], error)
 	ListAPIKeys(context.Context, *connect.Request[v1.ListAPIKeysRequest]) (*connect.Response[v1.ListAPIKeysResponse], error)
 	RevokeAPIKey(context.Context, *connect.Request[v1.RevokeAPIKeyRequest]) (*connect.Response[v1.RevokeAPIKeyResponse], error)
+	GetAuditLogs(context.Context, *connect.Request[v1.GetAuditLogsRequest]) (*connect.Response[v1.GetAuditLogsResponse], error)
+	RecordConsent(context.Context, *connect.Request[v1.RecordConsentRequest]) (*connect.Response[v1.RecordConsentResponse], error)
+	HardDeleteNode(context.Context, *connect.Request[v1.HardDeleteNodeRequest]) (*connect.Response[v1.HardDeleteNodeResponse], error)
 }
 
 // NewManagementServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -298,6 +349,24 @@ func NewManagementServiceHandler(svc ManagementServiceHandler, opts ...connect.H
 		connect.WithSchema(managementServiceMethods.ByName("RevokeAPIKey")),
 		connect.WithHandlerOptions(opts...),
 	)
+	managementServiceGetAuditLogsHandler := connect.NewUnaryHandler(
+		ManagementServiceGetAuditLogsProcedure,
+		svc.GetAuditLogs,
+		connect.WithSchema(managementServiceMethods.ByName("GetAuditLogs")),
+		connect.WithHandlerOptions(opts...),
+	)
+	managementServiceRecordConsentHandler := connect.NewUnaryHandler(
+		ManagementServiceRecordConsentProcedure,
+		svc.RecordConsent,
+		connect.WithSchema(managementServiceMethods.ByName("RecordConsent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	managementServiceHardDeleteNodeHandler := connect.NewUnaryHandler(
+		ManagementServiceHardDeleteNodeProcedure,
+		svc.HardDeleteNode,
+		connect.WithSchema(managementServiceMethods.ByName("HardDeleteNode")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/management.v1.ManagementService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ManagementServiceCreateOrgProcedure:
@@ -320,6 +389,12 @@ func NewManagementServiceHandler(svc ManagementServiceHandler, opts ...connect.H
 			managementServiceListAPIKeysHandler.ServeHTTP(w, r)
 		case ManagementServiceRevokeAPIKeyProcedure:
 			managementServiceRevokeAPIKeyHandler.ServeHTTP(w, r)
+		case ManagementServiceGetAuditLogsProcedure:
+			managementServiceGetAuditLogsHandler.ServeHTTP(w, r)
+		case ManagementServiceRecordConsentProcedure:
+			managementServiceRecordConsentHandler.ServeHTTP(w, r)
+		case ManagementServiceHardDeleteNodeProcedure:
+			managementServiceHardDeleteNodeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -367,4 +442,16 @@ func (UnimplementedManagementServiceHandler) ListAPIKeys(context.Context, *conne
 
 func (UnimplementedManagementServiceHandler) RevokeAPIKey(context.Context, *connect.Request[v1.RevokeAPIKeyRequest]) (*connect.Response[v1.RevokeAPIKeyResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("management.v1.ManagementService.RevokeAPIKey is not implemented"))
+}
+
+func (UnimplementedManagementServiceHandler) GetAuditLogs(context.Context, *connect.Request[v1.GetAuditLogsRequest]) (*connect.Response[v1.GetAuditLogsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("management.v1.ManagementService.GetAuditLogs is not implemented"))
+}
+
+func (UnimplementedManagementServiceHandler) RecordConsent(context.Context, *connect.Request[v1.RecordConsentRequest]) (*connect.Response[v1.RecordConsentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("management.v1.ManagementService.RecordConsent is not implemented"))
+}
+
+func (UnimplementedManagementServiceHandler) HardDeleteNode(context.Context, *connect.Request[v1.HardDeleteNodeRequest]) (*connect.Response[v1.HardDeleteNodeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("management.v1.ManagementService.HardDeleteNode is not implemented"))
 }
