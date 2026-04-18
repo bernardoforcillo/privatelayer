@@ -38,25 +38,38 @@ func TestCreateOrg(t *testing.T) {
 }
 
 func TestListNodes_Empty(t *testing.T) {
-	client, database := newTestManagementServer(t)
+	database := setupTestDB(t)
+	svc := NewManagementService(database)
 
 	org := &db.Org{Name: "Test", Slug: "test", CIDR: "10.0.0.0/8"}
 	require.NoError(t, database.CreateOrg(org))
 
 	ctx := db.WithOrgIDCtx(context.Background(), org.ID)
-	resp, err := client.ListNodes(ctx, connect.NewRequest(&managementv1.ListNodesRequest{}))
+	resp, err := svc.ListNodes(ctx, connect.NewRequest(&managementv1.ListNodesRequest{}))
 	require.NoError(t, err)
 	require.Empty(t, resp.Msg.Nodes)
 }
 
+func TestListNodes_MissingOrgID(t *testing.T) {
+	database := setupTestDB(t)
+	svc := NewManagementService(database)
+
+	_, err := svc.ListNodes(context.Background(), connect.NewRequest(&managementv1.ListNodesRequest{}))
+	require.Error(t, err)
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	require.Equal(t, connect.CodeUnauthenticated, connectErr.Code())
+}
+
 func TestCreatePreAuthKey(t *testing.T) {
-	client, database := newTestManagementServer(t)
+	database := setupTestDB(t)
+	svc := NewManagementService(database)
 
 	org := &db.Org{Name: "Test", Slug: "test", CIDR: "10.0.0.0/8"}
 	require.NoError(t, database.CreateOrg(org))
 
 	ctx := db.WithOrgIDCtx(context.Background(), org.ID)
-	resp, err := client.CreatePreAuthKey(ctx, connect.NewRequest(&managementv1.CreatePreAuthKeyRequest{
+	resp, err := svc.CreatePreAuthKey(ctx, connect.NewRequest(&managementv1.CreatePreAuthKeyRequest{
 		Reusable:  false,
 		ExpiresIn: "24h",
 	}))

@@ -97,7 +97,10 @@ func (s *ManagementService) GetOrg(ctx context.Context, req *connect.Request[man
 }
 
 func (s *ManagementService) ListNodes(ctx context.Context, req *connect.Request[managementv1.ListNodesRequest]) (*connect.Response[managementv1.ListNodesResponse], error) {
-	orgID, _ := db.OrgIDFromContext(ctx)
+	orgID, ok := db.OrgIDFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("missing org context"))
+	}
 	nodes, err := s.db.GetAllNodes()
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -138,7 +141,10 @@ func (s *ManagementService) DeleteNode(ctx context.Context, req *connect.Request
 }
 
 func (s *ManagementService) CreatePreAuthKey(ctx context.Context, req *connect.Request[managementv1.CreatePreAuthKeyRequest]) (*connect.Response[managementv1.CreatePreAuthKeyResponse], error) {
-	orgID, _ := db.OrgIDFromContext(ctx)
+	orgID, ok := db.OrgIDFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("missing org context"))
+	}
 
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -186,7 +192,10 @@ func (s *ManagementService) CreatePreAuthKey(ctx context.Context, req *connect.R
 }
 
 func (s *ManagementService) ListPreAuthKeys(ctx context.Context, req *connect.Request[managementv1.ListPreAuthKeysRequest]) (*connect.Response[managementv1.ListPreAuthKeysResponse], error) {
-	orgID, _ := db.OrgIDFromContext(ctx)
+	orgID, ok := db.OrgIDFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("missing org context"))
+	}
 	keys, err := s.db.GetAllPreAuthKeys()
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -281,7 +290,10 @@ func (s *ManagementService) CreateAPIKey(ctx context.Context, req *connect.Reque
 }
 
 func (s *ManagementService) ListAPIKeys(ctx context.Context, req *connect.Request[managementv1.ListAPIKeysRequest]) (*connect.Response[managementv1.ListAPIKeysResponse], error) {
-	orgID, _ := db.OrgIDFromContext(ctx)
+	orgID, ok := db.OrgIDFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("missing org context"))
+	}
 	keys, err := s.db.GetAllAPIKeys()
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
