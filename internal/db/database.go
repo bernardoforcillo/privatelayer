@@ -91,6 +91,8 @@ func NewDatabase(config *Config) (*Database, error) {
 
 func (d *Database) migrate() error {
 	return d.db.AutoMigrate(
+		&Org{},
+		&IPAllocation{},
 		&Node{},
 		&NodeStatus{},
 		&NodeRoute{},

@@ -5,12 +5,38 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+type Org struct {
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+	Name      string    `gorm:"size:255;not null" json:"name"`
+	Slug      string    `gorm:"uniqueIndex;size:100;not null" json:"slug"`
+	CIDR      string    `gorm:"size:20;not null;default:'10.0.0.0/8'" json:"cidr"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (Org) TableName() string { return "orgs" }
+
+func (o *Org) BeforeCreate(tx *gorm.DB) error {
+	if o.ID == uuid.Nil {
+		o.ID = uuid.New()
+	}
+	return nil
+}
+
+type IPAllocation struct {
+	OrgID     uuid.UUID `gorm:"type:uuid;primaryKey" json:"org_id"`
+	LastIndex int       `gorm:"not null;default:0" json:"last_index"`
+}
+
+func (IPAllocation) TableName() string { return "ip_allocations" }
 
 type Node struct {
 	ID            uint       `gorm:"primarykey" json:"id"`
 	MachineKey    string     `gorm:"uniqueIndex;size:64" json:"machine_key"`
+	OrgID         uuid.UUID  `gorm:"type:uuid;index;not null" json:"org_id"`
 	NodeKey       string     `gorm:"size:64" json:"node_key"`
 	PublicKey     string     `gorm:"size:44" json:"public_key"`
 	IPAddresses   StringJSON `gorm:"type:jsonb" json:"ip_addresses"`
@@ -62,6 +88,7 @@ func (NodeRoute) TableName() string {
 type PreAuthKey struct {
 	ID        uint       `gorm:"primarykey" json:"id"`
 	Key       string     `gorm:"uniqueIndex;size:64" json:"key"`
+	OrgID     uuid.UUID  `gorm:"type:uuid;index;not null" json:"org_id"`
 	Reusable  bool       `gorm:"default:false" json:"reusable"`
 	Ephemeral bool       `gorm:"default:false" json:"ephemeral"`
 	Used      bool       `gorm:"default:false" json:"used"`
@@ -78,6 +105,7 @@ func (PreAuthKey) TableName() string {
 type APIKey struct {
 	ID          uint       `gorm:"primarykey" json:"id"`
 	Key         string     `gorm:"uniqueIndex;size:128" json:"key"`
+	OrgID       uuid.UUID  `gorm:"type:uuid;index;not null" json:"org_id"`
 	Prefix      string     `gorm:"size:16" json:"prefix"`
 	Description string     `gorm:"size:255" json:"description"`
 	CreatedAt   time.Time  `json:"created_at"`
