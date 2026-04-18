@@ -1,0 +1,127 @@
+syntax = "proto3";
+
+package management.v1;
+
+option go_package = "github.com/bernardoforcillo/privatelayer/internal/gen/management/v1;managementv1";
+
+service ManagementService {
+  rpc CreateOrg(CreateOrgRequest) returns (CreateOrgResponse);
+  rpc GetOrg(GetOrgRequest) returns (GetOrgResponse);
+  rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
+  rpc DeleteNode(DeleteNodeRequest) returns (DeleteNodeResponse);
+  rpc CreatePreAuthKey(CreatePreAuthKeyRequest) returns (CreatePreAuthKeyResponse);
+  rpc ListPreAuthKeys(ListPreAuthKeysRequest) returns (ListPreAuthKeysResponse);
+  rpc RevokePreAuthKey(RevokePreAuthKeyRequest) returns (RevokePreAuthKeyResponse);
+  rpc CreateAPIKey(CreateAPIKeyRequest) returns (CreateAPIKeyResponse);
+  rpc ListAPIKeys(ListAPIKeysRequest) returns (ListAPIKeysResponse);
+  rpc RevokeAPIKey(RevokeAPIKeyRequest) returns (RevokeAPIKeyResponse);
+}
+
+message Org {
+  string id = 1;
+  string name = 2;
+  string slug = 3;
+  string cidr = 4;
+  int64 created_at = 5;
+}
+
+message CreateOrgRequest {
+  string name = 1;
+  string cidr = 2;
+}
+
+message CreateOrgResponse {
+  Org org = 1;
+  string api_key = 2;
+}
+
+message GetOrgRequest {
+  string slug = 1;
+}
+
+message GetOrgResponse {
+  Org org = 1;
+}
+
+message MgmtNode {
+  string id = 1;
+  string hostname = 2;
+  string public_key = 3;
+  repeated string ip_addresses = 4;
+  bool online = 5;
+  int64 last_seen = 6;
+}
+
+message ListNodesRequest {}
+
+message ListNodesResponse {
+  repeated MgmtNode nodes = 1;
+}
+
+message DeleteNodeRequest {
+  string id = 1;
+}
+
+message DeleteNodeResponse {}
+
+message PreAuthKey {
+  string id = 1;
+  string key = 2;
+  bool reusable = 3;
+  bool ephemeral = 4;
+  bool used = 5;
+  int64 expires_at = 6;
+  int64 created_at = 7;
+}
+
+message CreatePreAuthKeyRequest {
+  bool reusable = 1;
+  bool ephemeral = 2;
+  string expires_in = 3;
+}
+
+message CreatePreAuthKeyResponse {
+  PreAuthKey key = 1;
+}
+
+message ListPreAuthKeysRequest {}
+
+message ListPreAuthKeysResponse {
+  repeated PreAuthKey keys = 1;
+}
+
+message RevokePreAuthKeyRequest {
+  string key = 1;
+}
+
+message RevokePreAuthKeyResponse {}
+
+message APIKey {
+  string id = 1;
+  string prefix = 2;
+  string description = 3;
+  int64 created_at = 4;
+  int64 expires_at = 5;
+}
+
+message CreateAPIKeyRequest {
+  string description = 1;
+  string expires_in = 2;
+}
+
+message CreateAPIKeyResponse {
+  APIKey key = 1;
+  string raw_key = 2;
+}
+
+message ListAPIKeysRequest {}
+
+message ListAPIKeysResponse {
+  repeated APIKey keys = 1;
+}
+
+message RevokeAPIKeyRequest {
+  string id = 1;
+}
+
+message RevokeAPIKeyResponse {}
