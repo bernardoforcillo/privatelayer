@@ -113,7 +113,11 @@ func runServer(cmd *cobra.Command, args []string) error {
 	interceptor := api.NewAPIKeyInterceptor(database, bootstrapKey)
 
 	mux := http.NewServeMux()
-	mux.Handle(meshv1connect.NewMeshServiceHandler(meshServer))
+	meshPath, meshHandler := meshv1connect.NewMeshServiceHandler(
+		meshServer,
+		connect.WithInterceptors(mesh.NewMeshNodeInterceptor(meshServer)),
+	)
+	mux.Handle(meshPath, meshHandler)
 	mux.Handle(managementv1connect.NewManagementServiceHandler(
 		managementSvc,
 		connect.WithInterceptors(interceptor),

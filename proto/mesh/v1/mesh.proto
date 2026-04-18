@@ -24,6 +24,7 @@ message RegisterRequest {
 
 message RegisterResponse {
   repeated Peer peers = 1;
+  string session_token = 2;
 }
 
 message HeartbeatRequest {

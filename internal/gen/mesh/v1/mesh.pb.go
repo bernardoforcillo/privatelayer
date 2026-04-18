@@ -100,6 +100,7 @@ func (x *RegisterRequest) GetAuthKey() string {
 type RegisterResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Peers         []*Peer                `protobuf:"bytes,1,rep,name=peers,proto3" json:"peers,omitempty"`
+	SessionToken  string                 `protobuf:"bytes,2,opt,name=session_token,json=sessionToken,proto3" json:"session_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -139,6 +140,13 @@ func (x *RegisterResponse) GetPeers() []*Peer {
 		return x.Peers
 	}
 	return nil
+}
+
+func (x *RegisterResponse) GetSessionToken() string {
+	if x != nil {
+		return x.SessionToken
+	}
+	return ""
 }
 
 type HeartbeatRequest struct {
@@ -1381,9 +1389,10 @@ const file_mesh_v1_mesh_proto_rawDesc = "" +
 	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12\x1f\n" +
 	"\vallowed_ips\x18\x04 \x03(\tR\n" +
 	"allowedIps\x12\x19\n" +
-	"\bauth_key\x18\x05 \x01(\tR\aauthKey\"7\n" +
+	"\bauth_key\x18\x05 \x01(\tR\aauthKey\"\\\n" +
 	"\x10RegisterResponse\x12#\n" +
-	"\x05peers\x18\x01 \x03(\v2\r.mesh.v1.PeerR\x05peers\"\"\n" +
+	"\x05peers\x18\x01 \x03(\v2\r.mesh.v1.PeerR\x05peers\x12#\n" +
+	"\rsession_token\x18\x02 \x01(\tR\fsessionToken\"\"\n" +
 	"\x10HeartbeatRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"-\n" +
 	"\x11HeartbeatResponse\x12\x18\n" +

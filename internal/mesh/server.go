@@ -2,6 +2,9 @@ package mesh
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -70,6 +73,8 @@ type Server struct {
 	streamMu         sync.RWMutex
 	mapStreams        map[string]*connect.ServerStream[meshv1.NetworkMap]
 	mapStreamMu      sync.RWMutex
+	sessionsMu       sync.RWMutex
+	sessions         map[string]string // sha256(token) → nodeID
 }
 
 func NewServer(config *ServerConfig, database *db.Database) *Server {
@@ -83,6 +88,7 @@ func NewServer(config *ServerConfig, database *db.Database) *Server {
 		heartbeatTimeout: config.HeartbeatTimeout,
 		peerStreams:       make(map[string]*connect.ServerStream[meshv1.PeerList]),
 		mapStreams:        make(map[string]*connect.ServerStream[meshv1.NetworkMap]),
+		sessions:         make(map[string]string),
 	}
 	s.loadStateFromDB()
 	return s
@@ -138,7 +144,10 @@ func (s *Server) Register(ctx context.Context, req *connect.Request[meshv1.Regis
 	existingNode, lookupErr := s.database.GetNodeByMachineKey(nodeID)
 	switch {
 	case lookupErr == nil && len(existingNode.IPAddresses) > 0:
-		// Re-registration: reuse existing IP, skip allocation
+		// Re-registration: verify org ownership to prevent cross-tenant spoofing
+		if existingNode.OrgID != org.ID {
+			return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("node ID belongs to different organization"))
+		}
 		peerIP = strings.TrimSuffix(string(existingNode.IPAddresses[0]), "/32")
 	case lookupErr == nil || errors.Is(lookupErr, gorm.ErrRecordNotFound):
 		// New node: allocate a fresh IP
@@ -201,12 +210,29 @@ func (s *Server) Register(ctx context.Context, req *connect.Request[meshv1.Regis
 	s.broadcastPeerUpdate(nodeID, org.ID)
 	s.broadcastMapUpdate(nodeID, org.ID)
 
+	// Generate session token
+	rawToken, err := generateSessionToken()
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to generate session token: %w", err))
+	}
+	tokenHash := hashToken(rawToken)
+
+	s.sessionsMu.Lock()
+	s.sessions[tokenHash] = nodeID
+	s.sessionsMu.Unlock()
+
 	return connect.NewResponse(&meshv1.RegisterResponse{
-		Peers: s.getPeersList(org.ID),
+		Peers:        s.getPeersList(org.ID),
+		SessionToken: rawToken,
 	}), nil
 }
 
 func (s *Server) Heartbeat(ctx context.Context, req *connect.Request[meshv1.HeartbeatRequest]) (*connect.Response[meshv1.HeartbeatResponse], error) {
+	nodeID, ok := NodeIDFromContext(ctx)
+	if !ok || nodeID != req.Msg.Id {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("node ID mismatch"))
+	}
+
 	s.mu.Lock()
 	if peer, ok := s.peers[req.Msg.Id]; ok {
 		peer.LastSeen = time.Now()
@@ -225,6 +251,15 @@ func (s *Server) Heartbeat(ctx context.Context, req *connect.Request[meshv1.Hear
 }
 
 func (s *Server) StreamPeers(ctx context.Context, req *connect.Request[meshv1.StreamPeersRequest], stream *connect.ServerStream[meshv1.PeerList]) error {
+	// Validate session token
+	token := req.Header().Get("X-Node-Token")
+	if token == "" {
+		return connect.NewError(connect.CodeUnauthenticated, errors.New("X-Node-Token header required"))
+	}
+	if _, ok := s.ValidateNodeToken(token); !ok {
+		return connect.NewError(connect.CodeUnauthenticated, errors.New("invalid or expired node token"))
+	}
+
 	id := req.Msg.Id
 
 	s.mu.RLock()
@@ -267,6 +302,11 @@ func (s *Server) StreamPeers(ctx context.Context, req *connect.Request[meshv1.St
 }
 
 func (s *Server) Disconnect(ctx context.Context, req *connect.Request[meshv1.DisconnectRequest]) (*connect.Response[meshv1.DisconnectResponse], error) {
+	nodeID, ok := NodeIDFromContext(ctx)
+	if !ok || nodeID != req.Msg.Id {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("node ID mismatch"))
+	}
+
 	s.mu.Lock()
 	if peer, ok := s.peers[req.Msg.Id]; ok {
 		peer.Online = false
@@ -278,11 +318,17 @@ func (s *Server) Disconnect(ctx context.Context, req *connect.Request[meshv1.Dis
 	} else {
 		s.mu.Unlock()
 	}
+	s.DeleteNodeToken(req.Msg.Id)
 	slog.Info("peer disconnected", "node_id", req.Msg.Id)
 	return connect.NewResponse(&meshv1.DisconnectResponse{Success: true}), nil
 }
 
 func (s *Server) UpdateStatus(ctx context.Context, req *connect.Request[meshv1.UpdateStatusRequest]) (*connect.Response[meshv1.UpdateStatusResponse], error) {
+	nodeID, ok := NodeIDFromContext(ctx)
+	if !ok || nodeID != req.Msg.NodeId {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("node ID mismatch"))
+	}
+
 	s.mu.Lock()
 	if peer, ok := s.peers[req.Msg.NodeId]; ok {
 		peer.Online = req.Msg.Online
@@ -296,6 +342,15 @@ func (s *Server) UpdateStatus(ctx context.Context, req *connect.Request[meshv1.U
 }
 
 func (s *Server) StreamMap(ctx context.Context, req *connect.Request[meshv1.StreamMapRequest], stream *connect.ServerStream[meshv1.NetworkMap]) error {
+	// Validate session token
+	token := req.Header().Get("X-Node-Token")
+	if token == "" {
+		return connect.NewError(connect.CodeUnauthenticated, errors.New("X-Node-Token header required"))
+	}
+	if _, ok := s.ValidateNodeToken(token); !ok {
+		return connect.NewError(connect.CodeUnauthenticated, errors.New("invalid or expired node token"))
+	}
+
 	id := req.Msg.NodeId
 
 	s.mu.RLock()
@@ -477,4 +532,37 @@ func (s *Server) CleanupStalePeers() {
 			s.broadcastMapUpdate(ep.id, ep.orgID)
 		}
 	}
+}
+
+// ValidateNodeToken checks the session token and returns the associated nodeID.
+func (s *Server) ValidateNodeToken(token string) (nodeID string, ok bool) {
+	hash := hashToken(token)
+	s.sessionsMu.RLock()
+	nodeID, ok = s.sessions[hash]
+	s.sessionsMu.RUnlock()
+	return
+}
+
+// DeleteNodeToken removes all session tokens for a given nodeID (called on Disconnect).
+func (s *Server) DeleteNodeToken(nodeID string) {
+	s.sessionsMu.Lock()
+	for hash, id := range s.sessions {
+		if id == nodeID {
+			delete(s.sessions, hash)
+		}
+	}
+	s.sessionsMu.Unlock()
+}
+
+func generateSessionToken() (string, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+func hashToken(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
 }
