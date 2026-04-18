@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -126,14 +127,20 @@ func (s *Server) Register(ctx context.Context, req *connect.Request[meshv1.Regis
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("org not found"))
 	}
 
-	peerIP, err := s.database.AllocateIP(org.ID, org.CIDR)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("IP allocation failed: %w", err))
-	}
-
 	nodeID := req.Msg.Id
 	if nodeID == "" {
 		nodeID = uuid.New().String()
+	}
+
+	var peerIP string
+	existingNode, _ := s.database.GetNodeByMachineKey(nodeID)
+	if existingNode != nil && len(existingNode.IPAddresses) > 0 {
+		peerIP = strings.TrimSuffix(string(existingNode.IPAddresses[0]), "/32")
+	} else {
+		peerIP, err = s.database.AllocateIP(org.ID, org.CIDR)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("IP allocation failed: %w", err))
+		}
 	}
 
 	dbNode := &db.Node{
@@ -172,11 +179,14 @@ func (s *Server) Register(ctx context.Context, req *connect.Request[meshv1.Regis
 	}
 
 	s.mu.Lock()
+	wasOnline := s.peers[nodeID] != nil && s.peers[nodeID].Online
 	s.peers[nodeID] = peerInfo
 	s.mu.Unlock()
 
 	registrationsTotal.WithLabelValues(org.ID.String()).Inc()
-	nodesActive.WithLabelValues(org.ID.String()).Inc()
+	if !wasOnline {
+		nodesActive.WithLabelValues(org.ID.String()).Inc()
+	}
 
 	slog.Info("peer registered", "node_id", nodeID, "ip", peerIP, "org", org.Slug)
 
@@ -196,6 +206,13 @@ func (s *Server) Heartbeat(ctx context.Context, req *connect.Request[meshv1.Hear
 		heartbeatsTotal.WithLabelValues(peer.OrgID.String()).Inc()
 	}
 	s.mu.Unlock()
+
+	if node, err := s.database.GetNodeByMachineKey(req.Msg.Id); err == nil && node != nil {
+		node.LastSeen = time.Now()
+		node.Online = true
+		_ = s.database.UpdateNode(node)
+	}
+
 	return connect.NewResponse(&meshv1.HeartbeatResponse{Success: true}), nil
 }
 
@@ -430,19 +447,26 @@ func (s *Server) CleanupStalePeers() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for range ticker.C {
+		type expiredPeer struct {
+			id    string
+			orgID uuid.UUID
+		}
+		var expired []expiredPeer
+
 		s.mu.Lock()
 		for id, peer := range s.peers {
 			if time.Since(peer.LastSeen) > s.heartbeatTimeout && peer.Online {
 				peer.Online = false
 				nodesActive.WithLabelValues(peer.OrgID.String()).Dec()
 				slog.Info("peer expired", "node_id", id)
-				orgID := peer.OrgID
-				s.mu.Unlock()
-				s.broadcastPeerUpdate(id, orgID)
-				s.broadcastMapUpdate(id, orgID)
-				s.mu.Lock()
+				expired = append(expired, expiredPeer{id: id, orgID: peer.OrgID})
 			}
 		}
 		s.mu.Unlock()
+
+		for _, ep := range expired {
+			s.broadcastPeerUpdate(ep.id, ep.orgID)
+			s.broadcastMapUpdate(ep.id, ep.orgID)
+		}
 	}
 }
