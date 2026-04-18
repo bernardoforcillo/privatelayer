@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -8,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -34,8 +36,6 @@ import (
 var cfgFile string
 
 func main() {
-	setupLogger()
-
 	rootCmd := &cobra.Command{Use: "controlplane", Short: "PrivateLayer Control Plane"}
 	serveCmd := &cobra.Command{Use: "serve", Short: "Start the control plane", RunE: runServer}
 
@@ -81,6 +81,7 @@ func initConfig() {
 
 func runServer(cmd *cobra.Command, args []string) error {
 	initConfig()
+	setupLogger()
 
 	database, err := db.NewDatabase(&db.Config{
 		Type:            viper.GetString("database.type"),
@@ -151,8 +152,18 @@ func runServer(cmd *cobra.Command, args []string) error {
 			TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
 		}
 		slog.Info("control plane listening (TLS)", "addr", addr)
-		go func() { <-sigChan; srv.Close() }()
-		return srv.ListenAndServeTLS("", "")
+		go func() {
+			<-sigChan
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := srv.Shutdown(ctx); err != nil {
+				slog.Error("shutdown error", "err", err)
+			}
+		}()
+		if err := srv.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
 	}
 
 	if devMode {
@@ -167,8 +178,18 @@ func runServer(cmd *cobra.Command, args []string) error {
 			TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
 		}
 		slog.Info("control plane listening (dev TLS)", "addr", addr)
-		go func() { <-sigChan; srv.Close() }()
-		return srv.ListenAndServeTLS("", "")
+		go func() {
+			<-sigChan
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := srv.Shutdown(ctx); err != nil {
+				slog.Error("shutdown error", "err", err)
+			}
+		}()
+		if err := srv.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
 	}
 
 	// H2C (plain HTTP/2) for deployments that terminate TLS upstream
@@ -177,8 +198,18 @@ func runServer(cmd *cobra.Command, args []string) error {
 		Handler: h2c.NewHandler(mux, &http2.Server{}),
 	}
 	slog.Info("control plane listening (h2c)", "addr", addr)
-	go func() { <-sigChan; srv.Close() }()
-	return srv.ListenAndServe()
+	go func() {
+		<-sigChan
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			slog.Error("shutdown error", "err", err)
+		}
+	}()
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
 }
 
 func generateSelfSignedCert() (tls.Certificate, error) {
