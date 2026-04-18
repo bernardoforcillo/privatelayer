@@ -2,11 +2,12 @@ package db
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -39,7 +40,7 @@ func NewDatabase(config *Config) (*Database, error) {
 				os.MkdirAll(dir, 0755)
 			}
 		}
-		dialector = sqlite.Open(config.DSN)
+		dialector = openSQLite(config.DSN)
 	default:
 		return nil, fmt.Errorf("unsupported database type: %s", config.Type)
 	}
@@ -248,6 +249,62 @@ func (d *Database) GetAllEnabledRoutes() ([]NodeRoute, error) {
 	var routes []NodeRoute
 	err := d.db.Where("enabled = ?", true).Find(&routes).Error
 	return routes, err
+}
+
+// Org operations
+func (d *Database) CreateOrg(org *Org) error {
+	return d.db.Create(org).Error
+}
+
+func (d *Database) GetOrgByID(id uuid.UUID) (*Org, error) {
+	var org Org
+	err := d.db.First(&org, "id = ?", id).Error
+	return &org, err
+}
+
+func (d *Database) GetOrgBySlug(slug string) (*Org, error) {
+	var org Org
+	err := d.db.First(&org, "slug = ?", slug).Error
+	return &org, err
+}
+
+func (d *Database) ListOrgs() ([]Org, error) {
+	var orgs []Org
+	err := d.db.Order("created_at DESC").Find(&orgs).Error
+	return orgs, err
+}
+
+// AllocateIP atomically increments the IP counter for an org and returns the next host IP.
+// cidr is the org's network, e.g. "10.0.0.0/8".
+func (d *Database) AllocateIP(orgID uuid.UUID, cidr string) (string, error) {
+	var alloc IPAllocation
+	err := d.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Where("org_id = ?", orgID).First(&alloc)
+		if result.Error != nil {
+			alloc = IPAllocation{OrgID: orgID, LastIndex: 0}
+		}
+		alloc.LastIndex++
+		return tx.Save(&alloc).Error
+	})
+	if err != nil {
+		return "", err
+	}
+
+	_, ipnet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return "", fmt.Errorf("invalid CIDR %s: %w", cidr, err)
+	}
+	ip := ipnet.IP.To4()
+	if ip == nil {
+		return "", fmt.Errorf("only IPv4 CIDRs supported")
+	}
+	// Copy the IP to avoid mutating ipnet.IP
+	result := make(net.IP, 4)
+	copy(result, ip)
+	idx := alloc.LastIndex
+	result[2] = byte(idx >> 8)
+	result[3] = byte(idx & 0xFF)
+	return result.String(), nil
 }
 
 func (d *Database) Close() error {
