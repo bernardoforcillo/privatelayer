@@ -307,6 +307,30 @@ func (d *Database) AllocateIP(orgID uuid.UUID, cidr string) (string, error) {
 	return result.String(), nil
 }
 
+func (d *Database) GetNodesByOrgID(orgID uuid.UUID) ([]Node, error) {
+	var nodes []Node
+	err := d.db.Where("org_id = ?", orgID).Find(&nodes).Error
+	return nodes, err
+}
+
+func (d *Database) GetPreAuthKeysByOrgID(orgID uuid.UUID) ([]PreAuthKey, error) {
+	var keys []PreAuthKey
+	err := d.db.Where("org_id = ?", orgID).Find(&keys).Error
+	return keys, err
+}
+
+func (d *Database) GetAPIKeysByOrgID(orgID uuid.UUID) ([]APIKey, error) {
+	var keys []APIKey
+	err := d.db.Where("org_id = ?", orgID).Find(&keys).Error
+	return keys, err
+}
+
+func (d *Database) GetAPIKeyByID(id uint) (*APIKey, error) {
+	var key APIKey
+	err := d.db.First(&key, id).Error
+	return &key, err
+}
+
 func (d *Database) Close() error {
 	sqlDB, err := d.db.DB()
 	if err != nil {

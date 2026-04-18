@@ -101,15 +101,12 @@ func (s *ManagementService) ListNodes(ctx context.Context, req *connect.Request[
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("missing org context"))
 	}
-	nodes, err := s.db.GetAllNodes()
+	nodes, err := s.db.GetNodesByOrgID(orgID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	result := make([]*managementv1.MgmtNode, 0)
 	for _, n := range nodes {
-		if n.OrgID != orgID {
-			continue
-		}
 		result = append(result, &managementv1.MgmtNode{
 			Id:          n.MachineKey,
 			Hostname:    n.Hostname,
@@ -196,15 +193,12 @@ func (s *ManagementService) ListPreAuthKeys(ctx context.Context, req *connect.Re
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("missing org context"))
 	}
-	keys, err := s.db.GetAllPreAuthKeys()
+	keys, err := s.db.GetPreAuthKeysByOrgID(orgID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	result := make([]*managementv1.PreAuthKey, 0)
 	for _, k := range keys {
-		if k.OrgID != orgID {
-			continue
-		}
 		var expiresAtMs int64
 		if k.ExpiresAt != nil {
 			expiresAtMs = k.ExpiresAt.UnixMilli()
@@ -294,15 +288,12 @@ func (s *ManagementService) ListAPIKeys(ctx context.Context, req *connect.Reques
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("missing org context"))
 	}
-	keys, err := s.db.GetAllAPIKeys()
+	keys, err := s.db.GetAPIKeysByOrgID(orgID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	result := make([]*managementv1.APIKey, 0)
 	for _, k := range keys {
-		if k.OrgID != orgID {
-			continue
-		}
 		var expiresAtMs int64
 		if k.ExpiresAt != nil {
 			expiresAtMs = k.ExpiresAt.UnixMilli()
@@ -325,17 +316,15 @@ func (s *ManagementService) RevokeAPIKey(ctx context.Context, req *connect.Reque
 	}
 	var id uint
 	fmt.Sscanf(req.Msg.Id, "%d", &id)
-	keys, err := s.db.GetAllAPIKeys()
+	key, err := s.db.GetAPIKeyByID(id)
 	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("API key not found"))
+	}
+	if key.OrgID != orgID {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("API key belongs to different org"))
+	}
+	if err := s.db.DeleteAPIKey(id); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	for _, k := range keys {
-		if k.ID == id && k.OrgID == orgID {
-			if err := s.db.DeleteAPIKey(id); err != nil {
-				return nil, connect.NewError(connect.CodeInternal, err)
-			}
-			return connect.NewResponse(&managementv1.RevokeAPIKeyResponse{}), nil
-		}
-	}
-	return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("API key not found"))
+	return connect.NewResponse(&managementv1.RevokeAPIKeyResponse{}), nil
 }
