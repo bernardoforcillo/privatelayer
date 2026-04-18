@@ -2,8 +2,6 @@ package mesh
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net"
@@ -148,11 +146,14 @@ func (s *Server) Register(ctx context.Context, req *connect.Request[meshv1.Regis
 		LastSeen:    time.Now(),
 	}
 	if err := s.database.CreateNode(dbNode); err != nil {
-		dbNode2, _ := s.database.GetNodeByMachineKey(nodeID)
-		if dbNode2 != nil {
-			dbNode2.Online = true
-			dbNode2.LastSeen = time.Now()
-			_ = s.database.UpdateNode(dbNode2)
+		dbNode2, lookupErr := s.database.GetNodeByMachineKey(nodeID)
+		if lookupErr != nil || dbNode2 == nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to persist node: %w", err))
+		}
+		dbNode2.Online = true
+		dbNode2.LastSeen = time.Now()
+		if updateErr := s.database.UpdateNode(dbNode2); updateErr != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to update node: %w", updateErr))
 		}
 	}
 
@@ -444,11 +445,4 @@ func (s *Server) CleanupStalePeers() {
 		}
 		s.mu.Unlock()
 	}
-}
-
-// generatePreAuthKey creates a random pre-auth key string (used internally).
-func generatePreAuthKey() string {
-	b := make([]byte, 32)
-	rand.Read(b)
-	return base64.URLEncoding.EncodeToString(b)
 }
