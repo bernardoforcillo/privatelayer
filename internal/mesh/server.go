@@ -256,11 +256,15 @@ func (s *Server) StreamPeers(ctx context.Context, req *connect.Request[meshv1.St
 	if token == "" {
 		return connect.NewError(connect.CodeUnauthenticated, errors.New("X-Node-Token header required"))
 	}
-	if _, ok := s.ValidateNodeToken(token); !ok {
+	authenticatedID, ok := s.ValidateNodeToken(token)
+	if !ok {
 		return connect.NewError(connect.CodeUnauthenticated, errors.New("invalid or expired node token"))
 	}
 
 	id := req.Msg.Id
+	if authenticatedID != id {
+		return connect.NewError(connect.CodePermissionDenied, errors.New("node ID mismatch"))
+	}
 
 	s.mu.RLock()
 	peer, exists := s.peers[id]
@@ -347,11 +351,15 @@ func (s *Server) StreamMap(ctx context.Context, req *connect.Request[meshv1.Stre
 	if token == "" {
 		return connect.NewError(connect.CodeUnauthenticated, errors.New("X-Node-Token header required"))
 	}
-	if _, ok := s.ValidateNodeToken(token); !ok {
+	authenticatedID, ok := s.ValidateNodeToken(token)
+	if !ok {
 		return connect.NewError(connect.CodeUnauthenticated, errors.New("invalid or expired node token"))
 	}
 
 	id := req.Msg.NodeId
+	if authenticatedID != id {
+		return connect.NewError(connect.CodePermissionDenied, errors.New("node ID mismatch"))
+	}
 
 	s.mu.RLock()
 	peer, exists := s.peers[id]
