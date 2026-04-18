@@ -1,3 +1,5 @@
 bin/*
+bin/
 local/*
 docs/superpowers/*
+*.exe~

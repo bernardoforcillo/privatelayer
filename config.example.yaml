@@ -1,0 +1,33 @@
+# PrivateLayer Control Plane Configuration
+
+# Main listener port
+port: 8080
+
+# Prometheus metrics port
+metrics_port: 9090
+
+# Default mesh network CIDR
+cidr: 10.0.0.0/8
+
+# Peer heartbeat timeout in seconds
+peer_timeout: 60
+
+# Log format: "json" (production) or "text" (development)
+log_format: json
+
+# Bootstrap key — used to create the first org. Keep secret.
+bootstrap_key: "change-me-in-production"
+
+# Development mode: enables self-signed TLS cert
+dev_mode: false
+
+# TLS — provide cert+key for production
+# tls_cert_file: /etc/privatelayer/tls.crt
+# tls_key_file:  /etc/privatelayer/tls.key
+
+database:
+  type: postgres   # "postgres" or "sqlite"
+  dsn: "host=localhost user=privatelayer password=privatelayer dbname=privatelayer sslmode=disable"
+  max_open_conns: 25
+  max_idle_conns: 10
+  conn_max_lifetime: 1h
