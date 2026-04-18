@@ -2,6 +2,7 @@ package mesh
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"gorm.io/gorm"
 	"github.com/bernardoforcillo/privatelayer/internal/db"
 	meshv1 "github.com/bernardoforcillo/privatelayer/internal/gen/mesh/v1"
 	"github.com/bernardoforcillo/privatelayer/internal/gen/mesh/v1/meshv1connect"
@@ -133,14 +135,20 @@ func (s *Server) Register(ctx context.Context, req *connect.Request[meshv1.Regis
 	}
 
 	var peerIP string
-	existingNode, _ := s.database.GetNodeByMachineKey(nodeID)
-	if existingNode != nil && len(existingNode.IPAddresses) > 0 {
+	existingNode, lookupErr := s.database.GetNodeByMachineKey(nodeID)
+	switch {
+	case lookupErr == nil && len(existingNode.IPAddresses) > 0:
+		// Re-registration: reuse existing IP, skip allocation
 		peerIP = strings.TrimSuffix(string(existingNode.IPAddresses[0]), "/32")
-	} else {
+	case lookupErr == nil || errors.Is(lookupErr, gorm.ErrRecordNotFound):
+		// New node: allocate a fresh IP
 		peerIP, err = s.database.AllocateIP(org.ID, org.CIDR)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("IP allocation failed: %w", err))
 		}
+	default:
+		// Transient DB error — fail rather than leak an IP
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("node lookup failed: %w", lookupErr))
 	}
 
 	dbNode := &db.Node{
